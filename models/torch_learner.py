@@ -50,8 +50,8 @@ class Learner(nn.Module):
 
     def init_device(self):
         self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-        # self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.to(self.device)
+        # # self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        # self.to(self.device)
         print(f"Using {str(self.device)}")
 
     def check_data_leakage(self):
