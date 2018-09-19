@@ -49,7 +49,7 @@ class Learner(nn.Module):
         summary(self, (3, 224, 224))
 
     def init_device(self):
-        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         # self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.to(self.device)
         print(f"Using {str(self.device)}")
