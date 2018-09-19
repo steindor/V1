@@ -50,9 +50,12 @@ class Learner(nn.Module):
 
     def init_device(self):
         self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-        # # self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        # self.to(self.device)
-        print(f"Using {str(self.device)}")
+        
+        if torch.cuda.is_available():
+            print("Using GPU")
+            self.cuda()
+        else:
+            print("Using CPU")
 
     def check_data_leakage(self):
         trn_path = Path(self.trn_path)
@@ -250,6 +253,7 @@ class Learner(nn.Module):
         # each epoch
         for epoch in range(epochs):
             # each batch
+            cum_loss = 0
             for i, (images, labels, path, index) in enumerate(self.train_loader):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
@@ -266,18 +270,17 @@ class Learner(nn.Module):
                 if loss.item() < lowest_loss:
                     lowest_loss = loss.item()
 
-                # if (i) % (self.no_of_train_images // self.batch_size) == 0:
+                cum_loss += loss.item()
+
+                if (i) % (self.no_of_train_images // self.batch_size) == 0:
+                    print ('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch+1, epochs, i+1, total_step, (cum_loss/total_step)))
                 # if (i) % (1) == 0:
-                print ('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(
-                    epoch+1, epochs, i+1, total_step, loss.item()))
         print(f"Done training - Lowest loss value: {lowest_loss}")
 
     def test(self):
         # Test the model
         print(f"Testing on {self.no_of_test_images} testing images")
         self.eval()  # eval mode (batchnorm uses moving mean/variance instead of mini-batch mean/variance)
-
-        print(f"Length of test loader: {len(self.test_loader)}")
 
         with torch.no_grad():
             correct = 0
@@ -290,5 +293,4 @@ class Learner(nn.Module):
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
 
-            print('Test Accuracy of the model on the {} test images: {} %'.format(
-                len(self.test_loader), 100 * correct / total))
+            print('Test Accuracy of the model on the {} test images: {} %'.format(len(self.no_of_test_images), 100 * correct / total))
