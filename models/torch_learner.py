@@ -87,17 +87,22 @@ class Learner(nn.Module):
             self.num_classes = num_classes
             self.init_device()
 
-    def prebuilt_model(self, num_classes=7, img_size=(224,224), model=None):
+    def prebuilt_model(self, num_classes=7, img_size=(224,224), model=None, freeze_layers=False):
+        
         if not model:
             raise ValueError("Model is missing as a function parameter")
 
-        # for param in model.parameters():
-        #     # print(layer)
-        #     param.requires_grad = False
+        if freeze_layers:
+            print("Freezing layers until fully connected layer")
+            for param in model.parameters():
+                param.requires_grad = False
+
         self.features = nn.Sequential(*list(model.children())[:-1])
         last_layer = (list(model.children())[-1])
+
         self.num_classes = num_classes
         self.fc = nn.Linear(in_features=last_layer.in_features, out_features=num_classes, bias=True)
+
         self.img_width, self.img_height = img_size
         self.init_device()
 
@@ -246,7 +251,7 @@ class Learner(nn.Module):
                 shutil.move(image_path, f"{self.test_path}/{class_type}/{img_name}")
         print("Done moving images")
 
-    def display_images(self, figsize=(10,10), dataset='train'):
+    def show_images(self, figsize=(15,15), dataset='train'):
         fig, axes = plt.subplots(3, 3, figsize=figsize)
 
         print(f"Showing images from {dataset} dataset. To change, set the 'dataset' parameter")
@@ -274,7 +279,7 @@ class Learner(nn.Module):
 
         plt.show()
 
-    def train(self, epochs=5, lr=0.001):
+    def train(self, epochs=5, lr=0.001, show_loss_every_step=False):
 
         if self.num_classes > 2:
             # Loss and optimizer
@@ -298,6 +303,8 @@ class Learner(nn.Module):
             print(f"No of output classes: {self.num_classes}")
             print(f"Criterion: {self.criterion}")
             print("-"*25)
+
+        loss_array = []
 
         # Train the model
         total_step = len(self.train_loader)
@@ -323,12 +330,18 @@ class Learner(nn.Module):
                     lowest_loss = loss.item()
 
                 cum_loss += loss.item()
+                loss_array.append(loss.item())
+
+            if show_loss_every_step:
+                print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch + 1, epochs, i+1, total_step, (cum_loss/total_step)))
 
                 if (i) % (self.no_of_train_images // self.batch_size) == 0:
                     print ('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch+1, epochs, i+1, total_step, (cum_loss/total_step)))
                 # if (i) % (1) == 0:
         if lowest_loss != 100:
             print(f"Done training - Lowest loss value: {lowest_loss}")
+            print("Loss array:")
+            print(loss_array)
 
     def test(self):
         # Test the model

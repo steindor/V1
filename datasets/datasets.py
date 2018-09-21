@@ -101,8 +101,9 @@ class Derma(Dataset):
 
         if self.augment:
             train_transform = transforms.Compose([
+                transforms.RandomRotation((90,270)),
                 transforms.Resize(size=self.img_size),
-                # transforms.RandomCrop(32, padding=4),
+                # transforms.CenterCrop(),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 normalize,
