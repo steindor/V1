@@ -18,35 +18,100 @@ import pandas as pd
 import shutil
 from collections import Counter
 
+'''
+    Utility functions for class
+'''
+
+def get_class_from_col(self, col_name):
+    dictionary = {
+        "NV": "melanocytic_nevi",
+        "MEL": "melanoma",
+        "AKIEC": "actinic_keratosis",
+        "BCC": "BCC",
+        "BKL": "benign_keratosis",
+        "DF": "dermatofibroma",
+        "VASC": "vascular_lesion"
+    }
+    return dictionary[col_name]
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+class Block(nn.Module):
+
+    def __init__():
+        super(Block, self).__init()
 
 class Learner(nn.Module):
 
-    def __init__(self, num_classes=7):
+    def __init__(self):
         super(Learner, self).__init__()
-        self.layer1 = nn.Sequential(
-            nn.Conv2d(3, 128, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2))
-        self.layer2 = nn.Sequential(
-            nn.Conv2d(128, 256, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2))
-        self.fc = nn.Linear(56*56*256, num_classes)
 
+        # if(img_size[0] > 100):
+        #     self.conv1 = conv3x3(in_planes, out_planes, stride=1)
+
+
+        # self.layer1 = nn.Sequential(
+        #     nn.Conv2d(3, 16, kernel_size=5, stride=1, padding=2),
+        #     nn.BatchNorm2d(16),
+        #     nn.ReLU(),
+        #     nn.MaxPool2d(kernel_size=2, stride=2))
+        # self.layer2 = nn.Sequential(
+        #     nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2),
+        #     nn.BatchNorm2d(32),
+        #     nn.ReLU(),
+        #     nn.MaxPool2d(kernel_size=2, stride=2))
+        # self.fc = nn.Linear(8*8*32, num_classes)
+
+        # self.num_classes = num_classes
+        # self.init_device()
+
+    def create_model(self, num_classes=7, img_size=(224,224), custom_model=None):
+        if not custom_model:
+            self.img_width, self.img_height = img_size
+            
+            self.layer1 = nn.Sequential(
+                nn.Conv2d(3, 16, kernel_size=5, stride=1, padding=2),
+                nn.BatchNorm2d(16),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2))
+            self.layer2 = nn.Sequential(
+                nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2),
+                nn.BatchNorm2d(32),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2))
+            self.fc = nn.Linear(8*8*32, num_classes)
+
+            self.num_classes = num_classes
+            self.init_device()
+
+    def prebuilt_model(self, num_classes=7, img_size=(224,224), model=None):
+        if not model:
+            raise ValueError("Model is missing as a function parameter")
+
+        # for param in model.parameters():
+        #     # print(layer)
+        #     param.requires_grad = False
+        self.features = nn.Sequential(*list(model.children())[:-1])
+        last_layer = (list(model.children())[-1])
         self.num_classes = num_classes
+        self.fc = nn.Linear(in_features=last_layer.in_features, out_features=num_classes, bias=True)
+        self.img_width, self.img_height = img_size
         self.init_device()
 
+
+
     def forward(self, x):
-        out = self.layer1(x)
-        out = self.layer2(out)
+        out = self.features(x)
         out = out.reshape(out.size(0), -1)
         out = self.fc(out)
         return out
 
     def get_summary(self):
-        summary(self, (3, 224, 224))
+        print(self.img_height, self.img_width)
+        summary(self, (3, self.img_height, self.img_width))
 
     def init_device(self):
         self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
@@ -58,17 +123,11 @@ class Learner(nn.Module):
             print("Using CPU")
 
     def check_data_leakage(self):
-        trn_path = Path(self.trn_path)
-        classes = [str(x).split("/")[-1]
-                   for x in trn_path.iterdir() if x.is_dir()]
-
-        trn_images = glob(f"{self.trn_path}/*/*.jpg")
-        test_images = glob(f"{self.test_path}/*/*.jpg")
+        trn_images = glob(f"{self.train_dataset.dataset_path}/*/*.jpg")
+        test_images = glob(f"{self.test_dataset.dataset_path}/*/*.jpg")
         print(f"Found {len(trn_images)} training images and {len(test_images)} test images")
-        trn_images_names = [path.split(
-            "/")[-2]+"/"+path.split("/")[-1][:-4] for path in trn_images]
-        test_images_names = [path.split(
-            "/")[-2]+"/"+path.split("/")[-1][:-4] for path in test_images]
+        trn_images_names = [path.split("/")[-2]+"/"+path.split("/")[-1][:-4] for path in trn_images]
+        test_images_names = [path.split("/")[-2]+"/"+path.split("/")[-1][:-4] for path in test_images]
 
         intersection = list(set(trn_images_names) & set(test_images_names))
 
@@ -86,10 +145,10 @@ class Learner(nn.Module):
                 raise TypeError("The 'method' parameter has to be passed and set to train/test/random to proceed with cleaning")
             else:
                 if method == "train":
-                    subdir = self.trn_path
+                    subdir = self.train_dataset.dataset_path
                     print("clean train folder")
                 elif method == "test":
-                    subdir = self.test_path
+                    subdir = self.test_dataset.dataset_path
                     print("clean test folder")
                 elif method == "random":
                     print("clean randomly from both folders")
@@ -100,17 +159,7 @@ class Learner(nn.Module):
         else:
             raise TypeError("There is no data in list self_leakage_list and it is undefined. Run test_data_leakage first and then try again.")
 
-    def get_class_from_col(self, col_name):
-        dictionary = {
-            "NV": "melanocytic_nevi",
-            "MEL": "melanoma",
-            "AKIEC": "actinic_keratosis",
-            "BCC": "BCC",
-            "BKL": "benign_keratosis",
-            "DF": "dermatofibroma",
-            "VASC": "vascular_lesion"
-        }
-        return dictionary[col_name]
+    
 
     def copy_from_folder(self, img_folder, csv_path=None, train=True):
         subdir = "train" if train else "test"
@@ -129,7 +178,7 @@ class Learner(nn.Module):
                 if i >= 1:
                     val = [col for col in row[1]]
                     idx = val.index(1.0)
-                    class_type = self.get_class_from_col(cols[idx])
+                    class_type = get_class_from_col(cols[idx])
                     img_name = f"{val[0]}.jpg"
 
                     if os.path.exists(f"{self.test_path}/{class_type}/{img_name}"):
@@ -147,6 +196,7 @@ class Learner(nn.Module):
         
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
+        self.classes = train_dataset.dataset.classes
         self.batch_size = batch_size
         self.no_of_train_images = len(train_dataset.index)
         self.no_of_test_images = len(test_dataset.index)
@@ -196,21 +246,23 @@ class Learner(nn.Module):
                 shutil.move(image_path, f"{self.test_path}/{class_type}/{img_name}")
         print("Done moving images")
 
-    def display_train_images(self):
-        fig, axes = plt.subplots(3, 3)
+    def display_images(self, figsize=(10,10), dataset='train'):
+        fig, axes = plt.subplots(3, 3, figsize=figsize)
 
-        data_iter = iter(self.train_loader)
-        _images, labels, path, index = data_iter.next()
+        print(f"Showing images from {dataset} dataset. To change, set the 'dataset' parameter")
+        
+        data_iter = iter(self.train_loader) if dataset == "train" else iter(self.test_loader)
+        
+        _images, labels, index, path = data_iter.next()
         images = _images.numpy().transpose(0, 2, 3, 1)
 
         for i, ax in enumerate(axes.flat):
             # plot img
-            ax.imshow(images[i, :, :, :], interpolation='spline16')
-
+            ax.imshow(images[i, :, :, :], aspect='auto')
             # show true & predicted classes
             true_label = labels[i]
             # if cls_pred is None:
-            xlabel = "{}".format(true_label)
+            xlabel = "{}, ({}), filename: {}".format(self.train_dataset.dataset.classes[true_label], true_label, path[i].split("/")[-1])
             # else:
             #     cls_pred_name = labels[cls_pred[i]]
             #     xlabel = "True: {0}\nPred: {1}".format(
@@ -275,7 +327,8 @@ class Learner(nn.Module):
                 if (i) % (self.no_of_train_images // self.batch_size) == 0:
                     print ('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch+1, epochs, i+1, total_step, (cum_loss/total_step)))
                 # if (i) % (1) == 0:
-        print(f"Done training - Lowest loss value: {lowest_loss}")
+        if lowest_loss != 100:
+            print(f"Done training - Lowest loss value: {lowest_loss}")
 
     def test(self):
         # Test the model
@@ -293,4 +346,4 @@ class Learner(nn.Module):
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
 
-            print('Test Accuracy of the model on the {} test images: {} %'.format(len(self.no_of_test_images), 100 * correct / total))
+            print('Test Accuracy of the model on the {} test images: {} %'.format(self.no_of_test_images, round(100 * correct / total, 2)))

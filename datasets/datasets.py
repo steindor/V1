@@ -71,6 +71,7 @@ class Derma(Dataset):
         self.dataset = ImageFolderWithPaths(self.dataset_path, transform=self.transform()) 
         if subset:
             self.index = self.get_subsample_indices(shuffle=shuffle, percentage=subset_percentage)
+        
         print(f"found {len(self)} images - Subset is set to {self.subset}, creating dataset with {round(self.subset_percentage*len(self))} images")
        
 
@@ -141,7 +142,7 @@ class Derma(Dataset):
                 images += list(path)
         else:
             images = glob(f"{self.dataset_path}/*/*.jpg")
-        # print(images[:3])
+
         classes_arr = [path.split("/")[-2] for path in images]
         values = [v for k, v in Counter(classes_arr).items()]
         classes = [k for k, v in Counter(classes_arr).items()]
