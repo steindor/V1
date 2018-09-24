@@ -82,6 +82,36 @@ class Derma(Dataset):
     def __len__(self):
         return len(self.dataset)
 
+
+# TODO: Implementera transforms
+
+# data_dir = "data/"
+# input_shape = 299
+# batch_size = 32
+# mean = [0.5, 0.5, 0.5]
+# std = [0.5, 0.5, 0.5]
+# scale = 360
+# input_shape = 299
+# use_parallel = True
+# use_gpu = True
+# epochs = 100
+
+# data_transforms = {
+#     'train': transforms.Compose([
+#         transforms.Resize(scale),
+#         transforms.RandomResizedCrop(input_shape),
+#         transforms.RandomHorizontalFlip(),
+#         transforms.RandomVerticalFlip(),
+#         transforms.RandomRotation(degrees=90),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean, std)]),
+#     'val': transforms.Compose([
+#         transforms.Resize(scale),
+#         transforms.CenterCrop(input_shape),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean, std)]), }
+
+
     def transform(self):
         
         # TODO: Calculate std and mean of dataset to use on the fly
@@ -139,7 +169,7 @@ class Derma(Dataset):
         images = []
         if self.subset:
 
-            for i, (image, label, path) in tqdm(enumerate(torch.utils.data.DataLoader(self.dataset, sampler=SubsetRandomSampler(self.index), batch_size=64, num_workers=4))):
+            for image, label, path in (torch.utils.data.DataLoader(self.dataset, sampler=SubsetRandomSampler(self.index), batch_size=64, num_workers=4)):
                 images += list(path)
         else:
             images = glob(f"{self.dataset_path}/*/*.jpg")

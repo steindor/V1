@@ -34,39 +34,22 @@ def get_class_from_col(self, col_name):
     }
     return dictionary[col_name]
 
+# TODO: Calculate features to train only the top layer
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
-class Block(nn.Module):
+# def conv3x3(in_planes, out_planes, stride=1):
+#     """3x3 convolution with padding"""
+#     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
-    def __init__():
-        super(Block, self).__init()
+# class Block(nn.Module):
+
+#     def __init__(self):
+#         super(Block, self).__init()
 
 class Learner(nn.Module):
 
     def __init__(self):
         super(Learner, self).__init__()
-
-        # if(img_size[0] > 100):
-        #     self.conv1 = conv3x3(in_planes, out_planes, stride=1)
-
-
-        # self.layer1 = nn.Sequential(
-        #     nn.Conv2d(3, 16, kernel_size=5, stride=1, padding=2),
-        #     nn.BatchNorm2d(16),
-        #     nn.ReLU(),
-        #     nn.MaxPool2d(kernel_size=2, stride=2))
-        # self.layer2 = nn.Sequential(
-        #     nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2),
-        #     nn.BatchNorm2d(32),
-        #     nn.ReLU(),
-        #     nn.MaxPool2d(kernel_size=2, stride=2))
-        # self.fc = nn.Linear(8*8*32, num_classes)
-
-        # self.num_classes = num_classes
-        # self.init_device()
 
     def create_model(self, num_classes=7, img_size=(224,224), custom_model=None):
         if not custom_model:
@@ -87,15 +70,27 @@ class Learner(nn.Module):
             self.num_classes = num_classes
             self.init_device()
 
-    def prebuilt_model(self, num_classes=7, img_size=(224,224), model=None, freeze_layers=False):
+    def prebuilt_model(self, num_classes=7, img_size=(224,224), model=None, pretrained=False, freeze_layers=False):
         
         if not model:
             raise ValueError("Model is missing as a function parameter")
+
+        if type(model) is list:
+            models = []
+            for _model in model:
+                print(f"Loaded {len(models)} models: {_model}")
+                models.append(self.get_model(_model, pretrained))
+        else:
+            print("Loaded 1 model")
+            model = self.get_model(model, pretrained)
+
 
         if freeze_layers:
             print("Freezing layers until fully connected layer")
             for param in model.parameters():
                 param.requires_grad = False
+
+        # TODO: If model is instance of list - iterera yfir model og combinera
 
         self.features = nn.Sequential(*list(model.children())[:-1])
         last_layer = (list(model.children())[-1])
@@ -115,16 +110,27 @@ class Learner(nn.Module):
         return out
 
     def get_summary(self):
-        print(self.img_height, self.img_width)
         summary(self, (3, self.img_height, self.img_width))
+
+    def show_training_graph(self):
+        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(20, 5), squeeze=False)
+        ax[0, 0].plot(self.test_loss, label="Test loss")
+        ax[0, 0].plot(self.train_loss, label="Training loss")
+        ax[0, 0].legend()
+        ax[0, 0].set_title("Training / Test loss")
+        ax[0, 1].plot(self.test_acc, label="Test accuracy")
+        ax[0, 1].legend()
+        print("Still missing Train accuracy!")
 
     def init_device(self):
         self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         
         if torch.cuda.is_available():
             print("Using GPU")
+            self.pin_memory = True
             self.cuda()
         else:
+            self.pin_memory = False
             print("Using CPU")
 
     def check_data_leakage(self):
@@ -163,8 +169,6 @@ class Learner(nn.Module):
                     print(f"Removed image: {subdir}/{img}.jpg")
         else:
             raise TypeError("There is no data in list self_leakage_list and it is undefined. Run test_data_leakage first and then try again.")
-
-    
 
     def copy_from_folder(self, img_folder, csv_path=None, train=True):
         subdir = "train" if train else "test"
@@ -210,25 +214,25 @@ class Learner(nn.Module):
             test_subSampler = SubsetRandomSampler(test_dataset.index)
             train_subSampler = SubsetRandomSampler(train_dataset.index)
 
-            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, sampler=test_subSampler, batch_size=batch_size, num_workers=4)
-            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, sampler=train_subSampler, batch_size=batch_size, num_workers=4)
+            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, sampler=test_subSampler, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
+            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, sampler=train_subSampler, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
         elif train_dataset.subset and not test_dataset.subset:
             print("Train dataset subset is true and not test dataset subset")
             train_subSampler = SubsetRandomSampler(train_dataset.index)
            
-            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, sampler=train_subSampler, batch_size=batch_size, num_workers=4)
-            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=batch_size, num_workers=4)
+            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, sampler=train_subSampler, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
+            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
 
         elif not train_dataset and test_dataset.subset:
             print("Test dataset subset is true and not train dataset subset")
             test_subSampler = SubsetRandomSampler(test_dataset.index)
-            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, sampler=test_subSampler, batch_size=batch_size, num_workers=4)
-            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, batch_size=batch_size, num_workers=4)
+            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, sampler=test_subSampler, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
+            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
             
         else:
             # load the whole dataset
-            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, batch_size=batch_size, shuffle=True)
-            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=batch_size, shuffle=False)
+            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, batch_size=batch_size, shuffle=True, pin_memory=self.pin_memory)
+            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=batch_size, shuffle=False, pin_memory=self.pin_memory)
 
         print(f"Done loading Image data. Got {len(train_dataset)} training images and {len(test_dataset)} test images")
         if train_dataset.subset:
@@ -279,7 +283,23 @@ class Learner(nn.Module):
 
         plt.show()
 
+    def get_model(self, model, pretrained):
+
+        model_dict = {
+            "resnet18": torchvision.models.resnet18(pretrained=pretrained),
+            "resnet50": torchvision.models.resnet50(pretrained=pretrained),
+            "resnet101": torchvision.models.resnet101(pretrained=pretrained),
+            "densenet121": torchvision.models.densenet121(pretrained=pretrained),
+            "densenet161": torchvision.models.densenet161(pretrained=pretrained),
+            "densenet169": torchvision.models.densenet169(pretrained=pretrained),
+            "densenet201": torchvision.models.densenet201(pretrained=pretrained),
+            "inception_v3": torchvision.models.inception_v3(pretrained=pretrained)
+        }
+        return model_dict["{}".format(model)]
+
     def train(self, epochs=5, lr=0.001, show_loss_every_step=False):
+
+        val_losses = []
 
         if self.num_classes > 2:
             # Loss and optimizer
@@ -309,10 +329,14 @@ class Learner(nn.Module):
         # Train the model
         total_step = len(self.train_loader)
         lowest_loss = 100
+        test_acc = []
+        test_loss = []
+        train_acc = []
+        train_loss = []
         # each epoch
         for epoch in range(epochs):
             # each batch
-            cum_loss = 0
+            cum_loss_train = 0
             for i, (images, labels, path, index) in enumerate(self.train_loader):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
@@ -329,19 +353,47 @@ class Learner(nn.Module):
                 if loss.item() < lowest_loss:
                     lowest_loss = loss.item()
 
-                cum_loss += loss.item()
+                cum_loss_train += loss.item()
                 loss_array.append(loss.item())
 
-            if show_loss_every_step:
-                print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch + 1, epochs, i+1, total_step, (cum_loss/total_step)))
+                if show_loss_every_step:
+                    print('Epoch [{}/{}], Training loss: {:.4f}'.format(epoch + 1, epochs, (cum_loss_train/total_step)))
 
-                if (i) % (self.no_of_train_images // self.batch_size) == 0:
-                    print ('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch+1, epochs, i+1, total_step, (cum_loss/total_step)))
-                # if (i) % (1) == 0:
-        if lowest_loss != 100:
-            print(f"Done training - Lowest loss value: {lowest_loss}")
-            print("Loss array:")
-            print(loss_array)
+
+
+            self.eval()
+            with torch.no_grad():
+
+                total = 0
+                correct = 0
+                wrong = []
+
+                cum_loss_test = 0
+
+                for i, (images, labels, path, index) in enumerate(self.test_loader):
+                    images = images.to(self.device)
+                    labels = labels.to(self.device)
+                    
+                    outputs = self(images)
+                    loss = criterion(outputs, labels)
+
+                    cum_loss_test += loss.item()
+
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+                    wrong.append(predicted != labels)
+
+            train_loss.append(cum_loss_train / len(self.train_loader))
+
+            print('Epoch [{}/{}], Training loss: {:.4f} - Test Loss: {:.2f} - Test accuracy: {:.2f}'.format(epoch+1, epochs, (cum_loss_train/total_step), cum_loss_test / len(self.test_loader), 100 * correct / total))
+            test_loss.append(cum_loss_test / len(self.test_loader))
+            test_acc.append(100 * correct / total)
+
+
+        self.test_loss = test_loss
+        self.train_loss = train_loss
+        self.test_acc = test_acc
 
     def test(self):
         # Test the model
