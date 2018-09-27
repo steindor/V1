@@ -115,7 +115,6 @@ class Learner(nn.Module):
         self.num_classes = num_classes
         self.model_name = model_name
         self.img_width, self.img_height = img_size
-        self.init_device()
 
         model = get_model(model_name, pretrained=pretrained)
 
@@ -125,6 +124,7 @@ class Learner(nn.Module):
                 param.requires_grad = False
         
         self.replace_top_layer(model)
+        self.init_device()
 
     def forward(self, x):
         out = self.features(x)
@@ -370,7 +370,11 @@ class Learner(nn.Module):
 
         for epoch in tqdm(range(epochs)):
             self.train()
+
             cum_loss_train = 0
+            total_train = 0
+            correct_train = 0
+
             for i, (images, labels, path, index) in enumerate(self.train_loader):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
@@ -390,11 +394,11 @@ class Learner(nn.Module):
                 cum_loss_train += loss.item()
 
                 _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+                total_train += labels.size(0)
+                correct_train += (predicted == labels).sum().item()
 
                 loss_array.append(loss.item())
-                train_acc.append(100 * correct / total)
+                train_acc.append(100 * correct_train / total_train)
 
                 if show_loss_every_step:
                     print('Epoch [{}/{}], Training loss: {:.4f}'.format(epoch + 1, epochs, (cum_loss_train/total_step)))
@@ -428,7 +432,7 @@ class Learner(nn.Module):
             test_loss.append(cum_loss_test / len(self.test_loader))
             test_acc.append(100 * correct / total)
 
-            print('Epoch [{}/{}], Training loss: {:.4f} - Training accuracy: {:.2f}% Test Loss: {:.2f} - Test accuracy: {:.2f}%'.format(epoch+1, epochs, (cum_loss_train/total_step), (100*correct/total), cum_loss_test / len(self.test_loader), 100 * correct / total))
+            print('Epoch [{}/{}], Training loss: {:.4f} - Training accuracy: {:.2f}% Test Loss: {:.2f} - Test accuracy: {:.2f}%'.format(epoch+1, epochs, (cum_loss_train/total_step), (100 * correct_train / total_train), cum_loss_test / len(self.test_loader), 100 * correct / total))
 
         if not hasattr(self, "test_loss"):
             self.test_loss = [] 
