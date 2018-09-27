@@ -1,4 +1,7 @@
 *.ipynb
 *.jpg
 *.pyc
+*.pt
+runs/
 .vscode/
+TODO

@@ -4,7 +4,7 @@ import torch
 import torchvision
 import torch.nn as nn
 import numpy as np
-import torchvision.transforms as transforms
+# import torchvision.transforms as transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 from pathlib import Path
 
@@ -18,8 +18,10 @@ import pandas as pd
 import shutil
 from collections import Counter
 
+from IPython.core.debugger import set_trace
+
 '''
-    Utility functions for class
+    Utility functions
 '''
 
 def get_class_from_col(self, col_name):
@@ -34,80 +36,119 @@ def get_class_from_col(self, col_name):
     }
     return dictionary[col_name]
 
-# TODO: Calculate features to train only the top layer
+def get_model(model_name, pretrained):
 
+    model_dict = {
+        "resnet18": torchvision.models.resnet18(pretrained=pretrained),
+        "resnet34": torchvision.models.resnet34(pretrained=pretrained),
+        "resnet50": torchvision.models.resnet50(pretrained=pretrained),
+        "resnet101": torchvision.models.resnet101(pretrained=pretrained),
+        "densenet121": torchvision.models.densenet121(pretrained=pretrained),
+        "densenet161": torchvision.models.densenet161(pretrained=pretrained),
+        "densenet169": torchvision.models.densenet169(pretrained=pretrained),
+        "densenet201": torchvision.models.densenet201(pretrained=pretrained),
+        "squeezenet1_0": torchvision.models.squeezenet1_0(pretrained=pretrained),
+        "inception_v3": torchvision.models.inception_v3(pretrained=pretrained)
+    }
+    return model_dict["{}".format(model_name)]
 
-# def conv3x3(in_planes, out_planes, stride=1):
-#     """3x3 convolution with padding"""
-#     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+class FeatureExtractor(nn.Module):
+    
+    def __init__(self, model_name, pretrained=False, freeze=True):
+        super(FeatureExtractor, self).__init__()
 
-# class Block(nn.Module):
+        self.model_name = model_name
 
-#     def __init__(self):
-#         super(Block, self).__init()
+        if "dense" in model_name.lower():
+            model = get_model(model_name, pretrained)
+            self.features = nn.Sequential(*list(model.features.children()))
+        elif "resnet" in model_name.lower():
+            model = get_model(model_name, pretrained)
+            self.features = nn.Sequential(*list(model.children())[:-1])
+        elif "inception" in model_name.lower():
+            model = get_model(model_name, pretrained)
+            model.aux_logits = False
+            del  model._modules['fc']
+            model.fc = nn.Linear(2048, 512)
+            self.features = model
+
+        # bottleneck_tensor_size = 2048 f inception
+
+        if not model_name:
+            raise ValueError("Model name is missing, please pass in model_name parameter")
+
+        # freeze the layers since this is a feature extractor
+        for param in model.parameters():
+            param.requires_grad = False
+
+    def __sizeof__(self):
+        super(FeatureExtractor, self).__sizeof__()
+
+    def forward(self, x):
+        x = self.features(x)
+        return x
+
+class ModelEnsemble(nn.Module):
+    def __init__(self, n_classes):
+        super(ModelEnsemble, self).__init__()
+        # resnet34
+        self.fc1 = nn.Linear(512, 512)
+        # densenet 121
+        self.fc2 = nn.Linear(1024, 512)
+        self.fc3 = nn.Linear(512, n_classes)
+
+    def forward(self, inp1, inp2, inp3):
+        out1 = self.fc1(inp1)
+        out2 = self.fc2(inp2)
+        out = out1 + out2
+        out = self.fc3(out)
 
 class Learner(nn.Module):
-
     def __init__(self):
         super(Learner, self).__init__()
 
-    def create_model(self, num_classes=7, img_size=(224,224), custom_model=None):
-        if not custom_model:
-            self.img_width, self.img_height = img_size
-            
-            self.layer1 = nn.Sequential(
-                nn.Conv2d(3, 16, kernel_size=5, stride=1, padding=2),
-                nn.BatchNorm2d(16),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=2, stride=2))
-            self.layer2 = nn.Sequential(
-                nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2),
-                nn.BatchNorm2d(32),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=2, stride=2))
-            self.fc = nn.Linear(8*8*32, num_classes)
-
-            self.num_classes = num_classes
-            self.init_device()
-
-    def prebuilt_model(self, num_classes=7, img_size=(224,224), model=None, pretrained=False, freeze_layers=False):
+    def prebuilt_model(self, num_classes=7, img_size=(224,224), model_name=None, pretrained=False, freeze_all=False):
         
-        if not model:
-            raise ValueError("Model is missing as a function parameter")
-
-        if type(model) is list:
-            models = []
-            for _model in model:
-                print(f"Loaded {len(models)} models: {_model}")
-                models.append(self.get_model(_model, pretrained))
-        else:
-            print("Loaded 1 model")
-            model = self.get_model(model, pretrained)
-
-
-        if freeze_layers:
-            print("Freezing layers until fully connected layer")
-            for param in model.parameters():
-                param.requires_grad = False
-
-        # TODO: If model is instance of list - iterera yfir model og combinera
-
-        self.features = nn.Sequential(*list(model.children())[:-1])
-        last_layer = (list(model.children())[-1])
+        if not model_name:
+            raise ValueError("Model_name is missing as a function parameter")
 
         self.num_classes = num_classes
-        self.fc = nn.Linear(in_features=last_layer.in_features, out_features=num_classes, bias=True)
-
+        self.model_name = model_name
         self.img_width, self.img_height = img_size
         self.init_device()
 
+        model = get_model(model_name, pretrained=pretrained)
 
+        if freeze_all:
+            print("Freezing all layers until classifier")
+            for param in model.parameters():
+                param.requires_grad = False
+        
+        self.replace_top_layer(model)
 
     def forward(self, x):
         out = self.features(x)
         out = out.reshape(out.size(0), -1)
         out = self.fc(out)
         return out
+
+    def replace_top_layer(self, model):
+        if "resnet" in self.model_name:
+            self.features = nn.Sequential(*list(model.children())[:-1])
+            last_layer = (list(model.children())[-1])
+            self.fc = nn.Linear(in_features=last_layer.in_features, out_features=self.num_classes, bias=True)
+        elif "inception" in self.model_name:
+            self.aux_logits = False
+            # Inception bottleneck_features - in 2048
+            self._modules['fc'] = nn.Linear(in_features=2048, out_features=self.num_classes, bias=True)
+            
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def unfreeze():
+        for param in self.parameters():
+            param.requires_grad = True
 
     def get_summary(self):
         summary(self, (3, self.img_height, self.img_width))
@@ -119,23 +160,28 @@ class Learner(nn.Module):
         ax[0, 0].legend()
         ax[0, 0].set_title("Training / Test loss")
         ax[0, 1].plot(self.test_acc, label="Test accuracy")
+        ax[0, 1].plot(self.train_acc, label="Training accuracy")
         ax[0, 1].legend()
         print("Still missing Train accuracy!")
 
-    def init_device(self):
-        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-        
+    def init_device(self):      
         if torch.cuda.is_available():
             print("Using GPU")
+            self.device = 'cuda:0'
             self.pin_memory = True
             self.cuda()
         else:
+            self.device = 'cpu'
             self.pin_memory = False
             print("Using CPU")
 
     def check_data_leakage(self):
-        trn_images = glob(f"{self.train_dataset.dataset_path}/*/*.jpg")
-        test_images = glob(f"{self.test_dataset.dataset_path}/*/*.jpg")
+
+        if not hasattr(self, 'train_dataset'):
+            raise ValueError("There are no datasets loaded in the Learner")
+
+        trn_images = glob(f"{self.train_dataset.dataset.root}/*/*.jpg")
+        test_images = glob(f"{self.test_dataset.dataset.root}/*/*.jpg")
         print(f"Found {len(trn_images)} training images and {len(test_images)} test images")
         trn_images_names = [path.split("/")[-2]+"/"+path.split("/")[-1][:-4] for path in trn_images]
         test_images_names = [path.split("/")[-2]+"/"+path.split("/")[-1][:-4] for path in test_images]
@@ -283,21 +329,7 @@ class Learner(nn.Module):
 
         plt.show()
 
-    def get_model(self, model, pretrained):
-
-        model_dict = {
-            "resnet18": torchvision.models.resnet18(pretrained=pretrained),
-            "resnet50": torchvision.models.resnet50(pretrained=pretrained),
-            "resnet101": torchvision.models.resnet101(pretrained=pretrained),
-            "densenet121": torchvision.models.densenet121(pretrained=pretrained),
-            "densenet161": torchvision.models.densenet161(pretrained=pretrained),
-            "densenet169": torchvision.models.densenet169(pretrained=pretrained),
-            "densenet201": torchvision.models.densenet201(pretrained=pretrained),
-            "inception_v3": torchvision.models.inception_v3(pretrained=pretrained)
-        }
-        return model_dict["{}".format(model)]
-
-    def train(self, epochs=5, lr=0.001, show_loss_every_step=False):
+    def fit(self, epochs=5, lr=0.001, show_loss_every_step=False):
 
         val_losses = []
 
@@ -319,6 +351,7 @@ class Learner(nn.Module):
             print(f"Learning_rate: {self.lr}")
             print(f"batch_size: {self.batch_size}")
             print(f"No of training images: {self.no_of_train_images}")
+            print(f"No of test images: {self.no_of_test_images}")
             print(f"Number of epochs: {self.epochs}")
             print(f"No of output classes: {self.num_classes}")
             print(f"Criterion: {self.criterion}")
@@ -334,8 +367,9 @@ class Learner(nn.Module):
         train_acc = []
         train_loss = []
         # each epoch
-        for epoch in range(epochs):
-            # each batch
+
+        for epoch in tqdm(range(epochs)):
+            self.train()
             cum_loss_train = 0
             for i, (images, labels, path, index) in enumerate(self.train_loader):
                 images = images.to(self.device)
@@ -354,7 +388,13 @@ class Learner(nn.Module):
                     lowest_loss = loss.item()
 
                 cum_loss_train += loss.item()
+
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
                 loss_array.append(loss.item())
+                train_acc.append(100 * correct / total)
 
                 if show_loss_every_step:
                     print('Epoch [{}/{}], Training loss: {:.4f}'.format(epoch + 1, epochs, (cum_loss_train/total_step)))
@@ -385,15 +425,24 @@ class Learner(nn.Module):
                     wrong.append(predicted != labels)
 
             train_loss.append(cum_loss_train / len(self.train_loader))
-
-            print('Epoch [{}/{}], Training loss: {:.4f} - Test Loss: {:.2f} - Test accuracy: {:.2f}'.format(epoch+1, epochs, (cum_loss_train/total_step), cum_loss_test / len(self.test_loader), 100 * correct / total))
             test_loss.append(cum_loss_test / len(self.test_loader))
             test_acc.append(100 * correct / total)
 
+            print('Epoch [{}/{}], Training loss: {:.4f} - Training accuracy: {:.2f}% Test Loss: {:.2f} - Test accuracy: {:.2f}%'.format(epoch+1, epochs, (cum_loss_train/total_step), (100*correct/total), cum_loss_test / len(self.test_loader), 100 * correct / total))
 
-        self.test_loss = test_loss
-        self.train_loss = train_loss
-        self.test_acc = test_acc
+        if not hasattr(self, "test_loss"):
+            self.test_loss = [] 
+            self.train_loss = []
+            self.train_acc = []
+            self.test_acc = []
+
+        self.test_loss += test_loss
+        self.train_loss += train_loss
+        self.test_acc += test_acc
+        self.train_acc = train_acc
+
+        self.show_training_graph()
+
 
     def test(self):
         # Test the model

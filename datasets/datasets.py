@@ -9,6 +9,8 @@ import numpy as np
 import random
 import torch
 
+# TODO: Implementera validation fold i x split
+
 class ImageFolderWithPaths(datasets.ImageFolder):
     """
     Custom dataset class that includes image file paths. Extends
@@ -23,6 +25,8 @@ class ImageFolderWithPaths(datasets.ImageFolder):
         # make a new tuple that includes original and the path
         tuple_with_path = (original_tuple + (path,))
         return tuple_with_path
+
+
 
 class Derma(Dataset):
     '''
@@ -41,10 +45,9 @@ class Derma(Dataset):
             transform: pytorch transforms for transforms and tensor conversion
     '''
 
-    def __init__(self, batch_size, dataset_path, img_size=(32, 32), shuffle=False, test=False, train_test_split=0.2, augment=False, subset=False, subset_percentage=None, normal_distribution=True, distribution_dict=None):
+    def __init__(self, batch_size, dataset_path, img_size=(224, 224), shuffle=False, test=False, augment=False, subset=False, subset_percentage=None, normal_distribution=True, distribution_dict=None):
         self.batch_size = batch_size
         self.dataset_path = dataset_path
-        self.train_test_split = train_test_split
         self.img_size = img_size
         self.test = test
         self.shuffle = shuffle
@@ -52,27 +55,59 @@ class Derma(Dataset):
         self.subset = subset
         self.subset_percentage = subset_percentage
         
+        self.dataset = ImageFolderWithPaths(self.dataset_path, transform=self.transform())
+        self.image_count = int(np.floor(subset_percentage * len(self)))
+
         if subset_percentage and not subset:
             raise ValueError("Subset is set to false but the percentage is set!")
         elif subset and not subset_percentage:
             raise ValueError("Subset is set to true but the percentage is not set. Choose a value for subset_percentage!")
-        if normal_distribution and not distribution_dict:
-            print("Getting data with normal distribution - Cases spread as a physician would encounter them")
-        elif not normal_distribution and distribution_dict:
-            print("Getting data like defined in distribution dict")
-            distribution_dict = {
-                "melanocytic_nevi": 0.5,
-                "melanoma": 0.05
-            }
+        
+        if subset:
+            # Get a subset of dataset
+            
+            if normal_distribution and not distribution_dict:
+                print("Getting data with a predefined distribution - Cases spread as a physician would encounter them")
+                
+                # ISIC 2018 test set distribution
+                distribution_dict = {
+                    "melanocytic_nevi": 0.68,
+                    "melanoma": 0.11,
+                    "dermatofibroma": 0.01,
+                    "actinic_keratosis": 0.03,
+                    "BCC": 0.05,
+                    "benign_keratosis": 0.11,
+                    "vascular_lesion": 0.01,
+                }
+
+                self.index = self.get_subsample_indices(shuffle=shuffle, percentage=subset_percentage, distribution_dict=distribution_dict)
+
+                print(f"found {len(self)} images - Subset is set to {self.subset}, creating dataset with {round(self.subset_percentage*len(self))} images")
+
+                image_count = [round(self.image_count*percentage) for class_type,percentage in distribution_dict.items()]
+                print(image_count)
+
+                
+
+
+            elif not normal_distribution and distribution_dict:
+                print("Getting data like defined in distribution dict - distribution dict still missing")
+                # distr test set: [{'MEL': 11.0}, {'NV': 67.0}, {'BCC': 5.0}, {'AKIEC': 3.0}, {'BKL': 11.0}, {'DF': 1.0}, {'VASC': 1.0}]
         else:
             print("Getting all data")
 
+        train_t = transforms.Compose([transforms.ToTensor()])
+        train_set = ImageFolderWithPaths(self.dataset_path, transform=train_t)
 
-        self.dataset = ImageFolderWithPaths(self.dataset_path, transform=self.transform()) 
-        if subset:
-            self.index = self.get_subsample_indices(shuffle=shuffle, percentage=subset_percentage)
         
-        print(f"found {len(self)} images - Subset is set to {self.subset}, creating dataset with {round(self.subset_percentage*len(self))} images")
+        print(distribution_dict)
+
+        # breyta i generator, iterera yfir og saekja bara myndina
+        # muna ad resiza fyrst i 224,224 til ad fa rett
+
+        # print(train_set.train_data.shape)
+        # print(train_set.train_data.mean(axis=(0,1,2)/255))
+        # print(train_set.train_data.std(axis=(0,1,2)/255))
        
 
     def __getitem__(self, index):
@@ -96,7 +131,7 @@ class Derma(Dataset):
 # use_gpu = True
 # epochs = 100
 
-# data_transforms = {
+    # data_transforms = {
 #     'train': transforms.Compose([
 #         transforms.Resize(scale),
 #         transforms.RandomResizedCrop(input_shape),
@@ -112,12 +147,19 @@ class Derma(Dataset):
 #         transforms.Normalize(mean, std)]), }
 
 
+# TODO: 
+# Resize images - the short side is 1.25x larger than the input size - next a random square crop with the sice in
+# [0.8,1.0] of the resized image is taken and resized to the desired input size of the model
+# Next is a random horizontal flip
+# Random rotation of [0,90,180,270]
+# Augment brightness, saturation and contrast by random factor in the range of [0.9,1.1]
+
     def transform(self):
         
         # TODO: Calculate std and mean of dataset to use on the fly
         # https://discuss.pytorch.org/t/normalization-in-the-mnist-example/457/12
         # TODO: Write a function that shows training images with all transformations
-        
+    
         normalize = transforms.Normalize(
             mean=[0.5, 0.5, 0.5],
             std=[0.5, 0.5, 0.5],
@@ -150,20 +192,32 @@ class Derma(Dataset):
         else:
             return train_transform
 
-    def get_subsample_indices(self, percentage, shuffle=None):
+    def get_subsample_indices(self, percentage, shuffle=None, distribution_dict=None):
         self.subsample = True
-        self.no_of_test_images = int(np.floor(percentage * len(self)))
+        images = {}
 
-        # finna indexes af ollum clossum
-        # na i random subsample med percentage * fjolda myndum i hverjum classa fyrir sig?
+        for idx, (path,class_no) in enumerate(self.dataset.imgs):
+            class_type = path.split("/")[-2]
+            
+            if not class_type in images.keys():
+                images[class_type] = []
+                images[class_type].append(idx)
+            else:
+                images[class_type].append(idx)  
 
-        r = list(range(len(self) - 1))
         if shuffle:
-            random.shuffle(r)
+            for class_type in images.keys():
+                random.shuffle(images[class_type])
 
-        indices_subset = r[:self.no_of_test_images]
+        indices = []
 
-        return indices_subset
+        for class_type,percentage in distribution_dict.items():
+            no_of_images = round(percentage*self.image_count)
+            indices.extend(images[class_type][:no_of_images])
+
+        self.img_indices = indices
+
+        return indices
 
     def show_label_distribution(self):
         images = []
@@ -187,3 +241,18 @@ class Derma(Dataset):
         print("-"*50)
         plt.xticks(np.arange(len(classes)), (classes))
         plt.show()
+
+
+class FeaturesDataset(Dataset):
+
+    def __init__(self, featlst1, featlst2, labellst):
+        super(FeaturesDataset, self).__init__()
+        self.featlst1 = featlst1
+        self.featlst2 = featlst2
+        self.labellst = labellst
+
+    def __getitem__(self, index):
+        return (self.featlst1[index], self.featlst2[index], self.labellst[index])
+
+    def __len__(self):
+        return len(self.labellst)
