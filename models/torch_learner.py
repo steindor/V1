@@ -572,9 +572,9 @@ class Learner(nn.Module):
                 outputs = self(images)
                 loss = criterion(outputs, labels)
 
-                print(f"Learning rate: ")
-                for param_group in optimizer.param_groups:
-                    print(param_group['lr'])
+                # print(f"Learning rate: ")
+                # for param_group in optimizer.param_groups:
+                #     print(param_group['lr'])
 
                 # Backward and optimize
                 optimizer.zero_grad()
