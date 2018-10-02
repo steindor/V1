@@ -1,9 +1,14 @@
 import os
+from collections import Counter
+from IPython.core.debugger import set_trace
 
 import torch
 import torchvision
+import torchvision.utils as vutils
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
+from datetime import datetime, date
 # import torchvision.transforms as transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 from pathlib import Path
@@ -13,12 +18,13 @@ import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 import random
+import string
+import time
 from glob import glob
 import pandas as pd
 import shutil
-from collections import Counter
 
-from IPython.core.debugger import set_trace
+from tensorboardX import SummaryWriter
 
 '''
     Utility functions
@@ -35,6 +41,17 @@ def get_class_from_col(self, col_name):
         "VASC": "vascular_lesion"
     }
     return dictionary[col_name]
+
+def get_date():
+    now = datetime.now()
+    str(now).split(" ")
+    date_now = str(now).split(" ")
+    date_arr = date_now[0].split("-")
+    todays_date = date_arr[2]+"-"+date_arr[1]+"-"+date_arr[0]
+    return todays_date
+
+def generate_hash(length):
+    return '%x' % random.randrange(length**length)
 
 def get_model(model_name, pretrained):
 
@@ -54,7 +71,7 @@ def get_model(model_name, pretrained):
 
 class FeatureExtractor(nn.Module):
     
-    def __init__(self, model_name, pretrained=False, freeze=True):
+    def __init__(self, model_name, pretrained=False):
         super(FeatureExtractor, self).__init__()
 
         self.model_name = model_name
@@ -78,8 +95,7 @@ class FeatureExtractor(nn.Module):
             raise ValueError("Model name is missing, please pass in model_name parameter")
 
         # freeze the layers since this is a feature extractor
-        for param in model.parameters():
-            param.requires_grad = False
+        self.freeze()
 
     def __sizeof__(self):
         super(FeatureExtractor, self).__sizeof__()
@@ -120,35 +136,60 @@ class Learner(nn.Module):
 
         if freeze_all:
             print("Freezing all layers until classifier")
-            for param in model.parameters():
-                param.requires_grad = False
+            self.freeze()
         
         self.replace_top_layer(model)
         self.init_device()
 
     def forward(self, x):
         out = self.features(x)
-        out = out.reshape(out.size(0), -1)
+        
+        # models that use global average pooling 
+        if "densenet" in self.model_name:
+            out = F.avg_pool2d(out, kernel_size=7, stride=1).view(out.size(0), -1)
+        else:
+            out = out.reshape(out.size(0), -1)
+
         out = self.fc(out)
         return out
 
     def replace_top_layer(self, model):
+        # works
         if "resnet" in self.model_name:
             self.features = nn.Sequential(*list(model.children())[:-1])
             last_layer = (list(model.children())[-1])
             self.fc = nn.Linear(in_features=last_layer.in_features, out_features=self.num_classes, bias=True)
-        elif "inception" in self.model_name:
-            self.aux_logits = False
+        # works
+        elif "densenet" in self.model_name:
+            self.features = nn.Sequential(*list(model._modules['features']))
+            last_layer = model.classifier
+            self.fc = nn.Linear(in_features=last_layer.in_features, out_features=self.num_classes, bias=True)
+        # doesn't work
+        elif "inception" in self.model_name: 
+
+            model.aux_logits = False
+            del model._modules['fc']
+            self.features = nn.Sequential(*list(model.children()))
+            # model.fc = nn.Linear(2048, 512)
+
+
+            # self.aux_logits = False
             # Inception bottleneck_features - in 2048
-            self._modules['fc'] = nn.Linear(in_features=2048, out_features=self.num_classes, bias=True)
+            # del model._modules['fc']
+            # self.features = nn.Sequential(*list(model.children())[:-1])
+            self.fc = nn.Linear(in_features=2048, out_features=self.num_classes, bias=True)
             
     def freeze(self):
         for param in self.parameters():
             param.requires_grad = False
 
-    def unfreeze():
+        self.frozen = True
+
+    def unfreeze(self):
         for param in self.parameters():
             param.requires_grad = True
+        
+        self.frozen = False
 
     def get_summary(self):
         summary(self, (3, self.img_height, self.img_width))
@@ -162,7 +203,6 @@ class Learner(nn.Module):
         ax[0, 1].plot(self.test_acc, label="Test accuracy")
         ax[0, 1].plot(self.train_acc, label="Training accuracy")
         ax[0, 1].legend()
-        print("Still missing Train accuracy!")
 
     def init_device(self):      
         if torch.cuda.is_available():
@@ -251,6 +291,10 @@ class Learner(nn.Module):
         
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
+        self.shuffle_train = train_dataset.shuffle
+        self.shuffle_test = test_dataset.shuffle
+        self.augment_train = train_dataset.augment
+        self.transforms_list = train_dataset.transforms_list
         self.classes = train_dataset.dataset.classes
         self.batch_size = batch_size
         self.no_of_train_images = len(train_dataset.index)
@@ -329,9 +373,114 @@ class Learner(nn.Module):
 
         plt.show()
 
-    def fit(self, epochs=5, lr=0.001, show_loss_every_step=False):
+    def save_training_row_to_pd(self, epoch, train_l, train_a, test_l, test_a):
 
-        val_losses = []
+        training_dict = {
+            "training_hash": self.training_hash,
+            "model_name": self.model_name,
+            "model_path": self.model_path,
+            "train_loss": round(train_l, 4),
+            "train_acc": round(train_a, 4),
+            "test_loss": round(test_l, 4),
+            "test_acc": round(test_a, 4),
+            "frozen": self.frozen,
+            "epoch": epoch + 1,
+            "train_img_count": self.no_of_train_images,
+            "test_img_count": self.no_of_test_images,
+            "learning_rate": self.lr
+        }
+
+        filename = self.model_path.split("/")[-1][:-3]+".csv"
+        doc_path = f"saved_tensors/models/single_models_csv/{filename}"
+
+        if not os.path.exists(doc_path):
+            model_df = pd.DataFrame([training_dict], columns=training_dict.keys())
+        else:
+            document_list = list(pd.read_csv(doc_path).T.to_dict().values())
+            # set epoch to the right number(e.g. if resuming training after unfreezing)
+            training_dict["epoch"] = document_list[-1]['epoch'] + 1
+            document_list.append(training_dict)
+            model_df = pd.DataFrame(document_list, columns=training_dict.keys())
+
+        model_df.to_csv(doc_path, index=False)
+    def save_training_session_to_pd(self, overview_csv_path="saved_tensors/models/models_summary.csv", file_name=None, overwrite=False, comment=None):
+        
+        if not hasattr(self, "test_loss"):
+            raise ValueError("Model is still untrained")
+
+        overview_doc_path = Path(overview_csv_path)
+
+        training_dict = {
+            "training_hash": self.training_hash,
+            "date_of_training": self.date,
+            "model_name": self.model_name,
+            "model_path": self.model_path,
+            "augmentations": "_".join(self.transforms_list),
+            "learning_rate": self.lr,
+            "optimizer": self.optimizer_name,
+            "epochs": self.total_epochs,
+            "train_loss": round(self.train_loss[-1], 2),
+            "train_acc": round(self.train_acc[-1], 2),
+            "test_loss": round(self.test_loss[-1], 2),
+            "test_acc": round(self.test_acc[-1], 2),
+            "train_img_count": self.no_of_train_images,
+            "test_img_count": self.no_of_test_images,
+            "trn_shuffle": self.shuffle_train,
+            "test_shuffle": self.shuffle_test,
+            "comment": ("" if comment is None else comment)
+        }
+
+        if not overview_doc_path.exists():
+            overview_doc = pd.DataFrame([training_dict], columns=training_dict.keys())
+        else:
+            overview_doc = pd.read_csv(overview_csv_path)
+        
+        session = overview_doc.loc[overview_doc["training_hash"] == self.training_hash]
+
+        # if the model is already saved in csv doc
+        if len(session) > 0:
+            if not overwrite:
+                print("Session is already set. Set overwrite to True if file should be overwritten")
+            else:
+                training_hash = session['training_hash']
+                for k,v in training_dict.items():
+                    overview_doc[k] = v
+                print("Row saved (overwritten)")
+        else:
+            # new model so append to the model list
+            print("new model, appending")
+            model_list = list(pd.read_csv(overview_csv_path).T.to_dict().values())
+            model_list.append(training_dict)
+            print(model_list)
+            overview_doc = pd.DataFrame(model_list, columns=training_dict.keys())
+        
+        # save to csv
+        overview_doc.to_csv(overview_csv_path, index=False)
+
+
+    # def save_checkpoint(self, state, is_best, filename=self.model_path):
+    #     torch.save(state, filename)
+    #     if is_best:
+    #         shutil.copyfile(filename, 'model_best.pth.tar')
+
+    def fit(self, epochs=5, lr=0.001, show_loss_every_step=False, tensorboard_track=False, save_best=False):
+
+        date = get_date()
+        self.writer = SummaryWriter(f'runs/{date}')
+        self.date = date
+
+        if not hasattr(self, "training_hash"):
+            self.training_hash = generate_hash(16)
+            self.model_path = f"/saved_tensors/models/{self.model_name}_{self.training_hash}.pt"
+
+        if tensorboard_track:
+            now = datetime.now()
+            str(now).split(" ")
+            date_now = str(now).split(" ")
+            tod = date_now[1].split(".")[0]
+            date_arr = date_now[0].split("-")
+            run_date = date_arr[2]+"-"+date_arr[1]+"-"+date_arr[0]
+            time_of_day = tod.replace(":", "_")
 
         if self.num_classes > 2:
             # Loss and optimizer
@@ -340,10 +489,13 @@ class Learner(nn.Module):
         else:
             self.criterion = "Binary Cross Entropy Loss"
 
+        # TODO: Set optimizer name with switch statem. / if else
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        self.optimizer_name = "Adam"
 
         self.lr = lr
         self.epochs = epochs
+        self.total_epochs = (self.total_epochs + epochs) if hasattr(self, "total_epochs") else epochs
 
         if self.epochs:
             print("-"*25)
@@ -355,7 +507,30 @@ class Learner(nn.Module):
             print(f"Number of epochs: {self.epochs}")
             print(f"No of output classes: {self.num_classes}")
             print(f"Criterion: {self.criterion}")
+            print(f"Save best model is set to: {save_best}")
+            if tensorboard_track:
+                print(f"TB writer is {tensorboard_track} and writing to dir: runs/{date}")
+            else:
+                print(
+                    f"TB writer is {tensorboard_track} - set to True to enable TB tracking")
             print("-"*25)
+
+
+        # self.writer.add_scalars(f'{run_date}/{self.model_name}/{time_of_day}/session_parameters', {
+        #     "model_name": self.model_name,
+        #     "no_of_train_images": self.no_of_train_images,
+        #     "no_of_train_images": self.no_of_train_images,
+        #     "batch_size": self.batch_size,
+        #     "learning_rate": self.lr,
+        #     "Optimizer": "Adam"
+        # }, 0)
+
+        if tensorboard_track:
+            self.writer.add_text("model_name", str(self.model_name))
+            self.writer.add_text("batch_size", str(self.batch_size))
+            self.writer.add_text("no_of_training_images", str(self.no_of_train_images))
+            self.writer.add_text("no_of_test_images", str(self.no_of_test_images))
+
 
         loss_array = []
 
@@ -368,7 +543,14 @@ class Learner(nn.Module):
         train_loss = []
         # each epoch
 
-        for epoch in tqdm(range(epochs)):
+        start_time = time.time()
+
+        for epoch in range(epochs):
+
+            if epoch > 0:
+                print("Epoch number {} took: {:2f} seconds".format(epoch, (time.time() - start_time) / epoch))
+                
+
             self.train()
 
             cum_loss_train = 0
@@ -379,31 +561,43 @@ class Learner(nn.Module):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
 
+                if tensorboard_track:
+                    # tensoarboardX
+                    img_x = vutils.make_grid(images, normalize=True, scale_each=True)
+                    self.writer.add_image(f'{run_date}/{self.model_name}/{time_of_day}/training_images_batchid_{i}', img_x, i)
+                    # features = images.view(self.batch_size, (9633792))
+                    # self.writer.add_embedding(features, metadata=label, label_img=images.unsqueeze(1))
+                
                 # Forward pass
                 outputs = self(images)
                 loss = criterion(outputs, labels)
+
+                print(f"Learning rate: ")
+                for param_group in optimizer.param_groups:
+                    print(param_group['lr'])
 
                 # Backward and optimize
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
+
                 if loss.item() < lowest_loss:
                     lowest_loss = loss.item()
 
                 cum_loss_train += loss.item()
+
+                if tensorboard_track:
+                    self.writer.add_scalar(f'{run_date}/{self.model_name}/{time_of_day}/cum_loss_train', cum_loss_train, i)
 
                 _, predicted = torch.max(outputs.data, 1)
                 total_train += labels.size(0)
                 correct_train += (predicted == labels).sum().item()
 
                 loss_array.append(loss.item())
-                train_acc.append(100 * correct_train / total_train)
 
                 if show_loss_every_step:
                     print('Epoch [{}/{}], Training loss: {:.4f}'.format(epoch + 1, epochs, (cum_loss_train/total_step)))
-
-
 
             self.eval()
             with torch.no_grad():
@@ -428,9 +622,34 @@ class Learner(nn.Module):
                     correct += (predicted == labels).sum().item()
                     wrong.append(predicted != labels)
 
-            train_loss.append(cum_loss_train / len(self.train_loader))
-            test_loss.append(cum_loss_test / len(self.test_loader))
-            test_acc.append(100 * correct / total)
+            # if new training accuracy is higher than the last one, save checkpoint model
+            if epoch > 0 and ((100 * correct_train / total_train) < train_acc[-1]):
+                print("Save checkpoint since the loss is lower")
+                # self.save_checkpoint("")
+
+            train_l = cum_loss_train / len(self.train_loader)
+            test_l = cum_loss_test / len(self.test_loader)
+            train_a = 100 * correct_train / total_train
+            test_a = 100 * correct / total
+
+            if tensorboard_track:
+                self.writer.add_scalars(f'{run_date}/{self.model_name}/{time_of_day}', {
+                    "training_loss:": train_l,
+                    "test_loss": test_l,
+                    "train_accuracy": train_a,
+                    "test_accuracy": test_a
+                }, i)
+
+            train_loss.append(train_l)
+            test_loss.append(test_l)
+            train_acc.append(train_a)
+            test_acc.append(test_a)
+
+            self.save_training_row_to_pd(epoch, train_l, train_a, test_l, test_a)
+
+            if tensorboard_track:
+                for name, param in self.named_parameters():
+                    self.writer.add_histogram(name, param.clone().cpu().data.numpy(), (epoch+1))
 
             print('Epoch [{}/{}], Training loss: {:.4f} - Training accuracy: {:.2f}% Test Loss: {:.2f} - Test accuracy: {:.2f}%'.format(epoch+1, epochs, (cum_loss_train/total_step), (100 * correct_train / total_train), cum_loss_test / len(self.test_loader), 100 * correct / total))
 
@@ -443,10 +662,13 @@ class Learner(nn.Module):
         self.test_loss += test_loss
         self.train_loss += train_loss
         self.test_acc += test_acc
-        self.train_acc = train_acc
+        self.train_acc += train_acc
 
+        self.total_training_time = (time.time() - start_time)
+
+        self.writer.close()
+        print(f"Training time per epoch(average): { round(self.total_training_time / self.total_epochs, 2) }")
         self.show_training_graph()
-
 
     def test(self):
         # Test the model
@@ -456,7 +678,7 @@ class Learner(nn.Module):
         with torch.no_grad():
             correct = 0
             total = 0
-            for i, (images, labels, path, index) in tqdm(enumerate(self.test_loader)):
+            for i, (images, labels, path, index) in enumerate(self.test_loader):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
                 outputs = self(images)

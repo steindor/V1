@@ -54,7 +54,9 @@ class Derma(Dataset):
         self.augment = augment
         self.subset = subset
         self.subset_percentage = subset_percentage
-        
+        self.transforms_list = [transform.split(")")[0].strip()+")" for transform in str(self.transform()).split("\n")[1:-3]]
+
+
         self.dataset = ImageFolderWithPaths(self.dataset_path, transform=self.transform())
         self.image_count = int(np.floor(subset_percentage * len(self)))
 
@@ -67,7 +69,6 @@ class Derma(Dataset):
             # Get a subset of dataset
             
             if normal_distribution and not distribution_dict:
-                print("Getting data with a predefined distribution - Cases spread as a physician would encounter them")
                 
                 # ISIC 2018 test set distribution
                 distribution_dict = {
@@ -82,12 +83,8 @@ class Derma(Dataset):
 
                 self.index = self.get_subsample_indices(shuffle=shuffle, percentage=subset_percentage, distribution_dict=distribution_dict)
 
-                print(f"found {len(self)} images - Subset is set to {self.subset}, creating dataset with {round(self.subset_percentage*len(self))} images")
-
                 image_count = [round(self.image_count*percentage) for class_type,percentage in distribution_dict.items()]
-                print(image_count)
-
-                
+               
 
 
             elif not normal_distribution and distribution_dict:
@@ -96,11 +93,22 @@ class Derma(Dataset):
         else:
             print("Getting all data")
 
-        train_t = transforms.Compose([transforms.ToTensor()])
-        train_set = ImageFolderWithPaths(self.dataset_path, transform=train_t)
+        print("*"*25)
+        print(f"Total no of images: {len(self)} (x no of images)")
+        if self.subset:
+            print("Getting a subset of the whole dataset")
+        print(f"Percentage: {self.subset_percentage}")
+        print(f"Augmentation is set to: {self.augment}")
+        if normal_distribution:
+            print("Distribution of dataset: ISIC 2018")
+        print(f"Distribution of dataset: ")
+        print(f"Shuffle is set to: {self.shuffle}")
+        print(f"Img size is {self.img_size[0]}x{self.img_size[1]}")
+        print("*"*25)
 
-        
-        print(distribution_dict)
+        # train_t = transforms.Compose([transforms.ToTensor()])
+        # train_set = ImageFolderWithPaths(self.dataset_path, transform=train_t)
+
 
         # breyta i generator, iterera yfir og saekja bara myndina
         # muna ad resiza fyrst i 224,224 til ad fa rett
@@ -170,6 +178,11 @@ class Derma(Dataset):
             transforms.ToTensor(),
             normalize
         ])
+
+        # transforms.Resize(299),
+        # transforms.RandomRotation(degrees=90),
+        # transforms.CenterCrop(224),
+        # transforms.ToTensor()
 
         if self.augment:
             train_transform = transforms.Compose([

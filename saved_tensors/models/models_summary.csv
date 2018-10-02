@@ -1,0 +1,2 @@
+training_hash,date_of_training,model_name,model_path,augmentations,learning_rate,optimizer,epochs,train_loss,train_acc,test_loss,test_acc,train_img_count,test_img_count,trn_shuffle,test_shuffle,comment
+905cf3e9413a17d,02-10-2018,resnet18,/saved_tensors/models/resnet18_905cf3e9413a17d.pt,"RandomRotation(degrees=(90, 270)_Resize(size=(224, 224)_RandomHorizontalFlip(p=0.5)",0.001,Adam,3,1.08,73.25,3.54,72.97,157,37,True,False,
