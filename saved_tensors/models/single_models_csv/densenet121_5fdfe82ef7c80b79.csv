@@ -1,0 +1,14 @@
+training_hash,model_name,model_path,train_loss,train_acc,test_loss,test_acc,frozen,epoch,train_img_count,test_img_count,learning_rate
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.7056,74.0385,0.8083,74.7323,True,1,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.5915,77.5943,0.5691,78.6938,True,2,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.5364,79.7079,0.7227,74.4111,True,3,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.5004,80.6604,0.6052,77.3019,True,4,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.4748,81.4042,0.6039,77.6231,True,5,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.4822,81.7489,0.5495,78.9079,False,6,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.4579,82.4746,0.5077,79.7645,False,7,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.4319,83.1005,0.5554,80.0857,False,8,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.4176,83.9985,0.5055,81.7987,False,9,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.40700000000000003,84.0893,0.5293,80.2998,False,10,11024,934,0.001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.3214,87.6724,0.4695,84.3683,False,11,11024,934,0.0001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.2986,88.5704,0.4431,85.3319,False,12,11024,934,0.0001
+5fdfe82ef7c80b79,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,0.2792,89.3052,0.4452,84.3683,False,13,11024,934,0.0001

@@ -1,3 +1,5 @@
 training_hash,date_of_training,model_name,model_path,augmentations,learning_rate,optimizer,epochs,train_loss,train_acc,test_loss,test_acc,train_img_count,test_img_count,trn_shuffle,test_shuffle,comment
 af4b1cb2d8aa0310,02-10-2018,resnet18,/saved_tensors/models/resnet18_af4b1cb2d8aa0310.pt,"RandomRotation(degrees=(90, 270)_Resize(size=(224, 224)_RandomHorizontalFlip(p=0.5)",0.0001,Adam,19,0.27,89.72,0.31,87.84,3133,765,True,False,
 af4b1cb2d8aa0310,02-10-2018,resnet18,/saved_tensors/models/resnet18_af4b1cb2d8aa0310.pt,"RandomRotation(degrees=(90, 270)_Resize(size=(224, 224)_RandomHorizontalFlip(p=0.5)",0.0001,Adam,19,0.27,89.72,0.31,87.84,3133,765,True,False,
+5fdfe82ef7c80b79,02-10-2018,densenet121,/saved_tensors/models/densenet121_5fdfe82ef7c80b79.pt,"RandomRotation(degrees=(90, 270)_Resize(size=(224, 224)_RandomHorizontalFlip(p=0.5)",0.0001,Adam,13,0.28,89.31,0.45,84.37,11024,934,True,True,
+657ea6efae9e8554,02-10-2018,densenet121,/saved_tensors/models/densenet121_657ea6efae9e8554.pt,"RandomRotation(degrees=(90, 270)_Resize(size=(224, 224)_RandomHorizontalFlip(p=0.5)",0.0001,Adam,5,0.25,90.68,0.41,85.76,11024,934,True,True,

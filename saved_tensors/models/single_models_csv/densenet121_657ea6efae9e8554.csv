@@ -1,0 +1,6 @@
+training_hash,model_name,model_path,train_loss,train_acc,test_loss,test_acc,frozen,epoch,train_img_count,test_img_count,learning_rate
+657ea6efae9e8554,densenet121,/saved_tensors/models/densenet121_657ea6efae9e8554.pt,0.7359,77.1045,0.6187,79.8715,True,1,11024,934,0.0001
+657ea6efae9e8554,densenet121,/saved_tensors/models/densenet121_657ea6efae9e8554.pt,0.4382,84.2163,0.521,82.4411,True,2,11024,934,0.0001
+657ea6efae9e8554,densenet121,/saved_tensors/models/densenet121_657ea6efae9e8554.pt,0.3441,87.2551,0.4334,84.7966,True,3,11024,934,0.0001
+657ea6efae9e8554,densenet121,/saved_tensors/models/densenet121_657ea6efae9e8554.pt,0.2956,88.9967,0.4587,85.1178,True,4,11024,934,0.0001
+657ea6efae9e8554,densenet121,/saved_tensors/models/densenet121_657ea6efae9e8554.pt,0.2543,90.684,0.4143,85.7602,True,5,11024,934,0.0001
