@@ -1,3 +1,0 @@
-training_hash,model_name,model_path,train_loss,train_acc,test_loss,test_acc,frozen,epoch,train_img_count,test_img_count,learning_rate
-9ef530ac1bd4ccd8,densenet121,/saved_tensors/models/densenet121_9ef530ac1bd4ccd8.pt,1.0748,63.9572,1.7269,68.6695,True,1,935,233,0.001
-9ef530ac1bd4ccd8,densenet121,/saved_tensors/models/densenet121_9ef530ac1bd4ccd8.pt,0.6858,74.7594,1.233,70.8155,True,2,935,233,0.001

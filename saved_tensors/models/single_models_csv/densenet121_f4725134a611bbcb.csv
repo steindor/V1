@@ -1,6 +1,0 @@
-training_hash,model_name,model_path,train_loss,train_acc,test_loss,test_acc,frozen,epoch,train_img_count,test_img_count,learning_rate
-f4725134a611bbcb,densenet121,/saved_tensors/models/densenet121_f4725134a611bbcb.pt,1.144,62.0321,1.0278,69.0987,True,1,935,233,0.001
-f4725134a611bbcb,densenet121,/saved_tensors/models/densenet121_f4725134a611bbcb.pt,0.7557,72.0856,1.2622,67.8112,True,2,935,233,0.001
-f4725134a611bbcb,densenet121,/saved_tensors/models/densenet121_f4725134a611bbcb.pt,0.6859999999999999,76.3636,1.0624,69.9571,True,3,935,233,0.001
-f4725134a611bbcb,densenet121,/saved_tensors/models/densenet121_f4725134a611bbcb.pt,0.6204,75.7219,0.7925,67.8112,True,4,935,233,0.001
-f4725134a611bbcb,densenet121,/saved_tensors/models/densenet121_f4725134a611bbcb.pt,0.5552,79.0374,0.9856,70.3863,True,5,935,233,0.001

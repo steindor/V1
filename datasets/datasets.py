@@ -236,7 +236,7 @@ class Derma(Dataset):
         images = []
         if self.subset:
 
-            for image, label, path in (torch.utils.data.DataLoader(self.dataset, sampler=SubsetRandomSampler(self.index), batch_size=64, num_workers=4)):
+            for image, label, path in (torch.utils.data.DataLoader(self.dataset, sampler=SubsetRandomSampler(self.index), batch_size=self.batch_size, num_workers=4)):
                 images += list(path)
         else:
             images = glob(f"{self.dataset_path}/*/*.jpg")

@@ -123,16 +123,26 @@ class Learner(nn.Module):
     def __init__(self):
         super(Learner, self).__init__()
 
-    def prebuilt_model(self, num_classes=7, img_size=(224,224), model_name=None, pretrained=False, freeze_all=False):
+    def prebuilt_model(self, num_classes=7, img_size=(224,224), precompute=False, model_name=None, pretrained=False, freeze_all=False):
         
         if not model_name:
             raise ValueError("Model_name is missing as a function parameter")
+        
+        date = get_date()
 
         self.num_classes = num_classes
         self.model_name = model_name
         self.img_width, self.img_height = img_size
+        self.date = date
+        self.training_hash = generate_hash(16)
+        self.model_path = f"saved_tensors/models/{self.model_name}_{self.training_hash}"
 
         model = get_model(model_name, pretrained=pretrained)
+
+        if precompute:
+            # TODO: Implement..
+            print("=> Extracting bottleneck features")
+            self.bottleneck_features = FeatureExtractor(self.model_name)
 
         if freeze_all:
             print("Freezing all layers until classifier")
@@ -143,7 +153,6 @@ class Learner(nn.Module):
 
     def forward(self, x):
         out = self.features(x)
-        
         # models that use global average pooling 
         if "densenet" in self.model_name:
             out = F.avg_pool2d(out, kernel_size=7, stride=1).view(out.size(0), -1)
@@ -403,6 +412,7 @@ class Learner(nn.Module):
             model_df = pd.DataFrame(document_list, columns=training_dict.keys())
 
         model_df.to_csv(doc_path, index=False)
+    
     def save_training_session_to_pd(self, overview_csv_path="saved_tensors/models/models_summary.csv", file_name=None, overwrite=False, comment=None):
         
         if not hasattr(self, "test_loss"):
@@ -457,29 +467,50 @@ class Learner(nn.Module):
         # save to csv
         overview_doc.to_csv(overview_csv_path, index=False)
 
+    def load_checkpoint(self, path=None, training_hash=None):
 
-    # def save_checkpoint(self, state, is_best, filename=self.model_path):
-    #     torch.save(state, filename)
-    #     if is_best:
-    #         shutil.copyfile(filename, 'model_best.pth.tar')
+        if not hasattr(self, 'optimizer'):
+            print("=> Initializing Adam as optimizer with LR 0.001")
+            self.optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
 
-    def fit(self, epochs=5, lr=0.001, show_loss_every_step=False, tensorboard_track=False, save_best=False):
+        if path is None:
+            if training_hash is None:
+                print("Path and training_hash is None, checking if best model exists")
+                doc_path = Path(f"{self.model_path}_model_best.pth.tar")
+                if not doc_path.exists():
+                    raise ValueError("Cannot find a saved model for this training session")
+                else:
+                    # TODO
+                    print("Loading best model.. still need to implement this function")
+            else:
+                print("=> Loading model from training_hash")
+                path = f"saved_tensors/models/{self.model_name}_{self.training_hash}_model_best.pth.tar"
 
-        date = get_date()
-        self.writer = SummaryWriter(f'runs/{date}')
-        self.date = date
 
-        if not hasattr(self, "training_hash"):
-            self.training_hash = generate_hash(16)
-            self.model_path = f"/saved_tensors/models/{self.model_name}_{self.training_hash}.pt"
+        if os.path.isfile(path):
+            print("=> loading checkpoint '{}'".format(path))
+            checkpoint = torch.load(path)
+            start_epoch = checkpoint['epoch']
+            # self.best_acc = checkpoint['best_acc']
+            self.load_state_dict(checkpoint['state_dict'])
+            self.training_hash = checkpoint['training_hash']
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            print("=> loaded checkpoint '{}' (epoch {}) with best accuracy: {}".format(path, checkpoint['epoch'], checkpoint['best_acc']))
+        else:
+            print("=> no checkpoint found at '{}'".format(path))
 
+    def save_checkpoint(self, state):
+        torch.save(state, f'{self.model_path}_model_best.pth.tar')
+        print(f"Saved model to {self.model_path}_model_best.pth.tar")
+
+    def fit(self, epochs=5, lr=0.001, tensorboard_track=False, save_best=False, pandas_track=False):
+ 
         if tensorboard_track:
+            self.writer = SummaryWriter(f'runs/{date}')
             now = datetime.now()
             str(now).split(" ")
             date_now = str(now).split(" ")
             tod = date_now[1].split(".")[0]
-            date_arr = date_now[0].split("-")
-            run_date = date_arr[2]+"-"+date_arr[1]+"-"+date_arr[0]
             time_of_day = tod.replace(":", "_")
 
         if self.num_classes > 2:
@@ -490,7 +521,9 @@ class Learner(nn.Module):
             self.criterion = "Binary Cross Entropy Loss"
 
         # TODO: Set optimizer name with switch statem. / if else
-        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        # self.optimizer = torch.optim.SGD(self.parameters(), momentum=0.9, weight_decay= lr=lr)
         self.optimizer_name = "Adam"
 
         self.lr = lr
@@ -508,6 +541,7 @@ class Learner(nn.Module):
             print(f"No of output classes: {self.num_classes}")
             print(f"Criterion: {self.criterion}")
             print(f"Save best model is set to: {save_best}")
+            print(f"Pandas tracking is set to: {pandas_track}")
             if tensorboard_track:
                 print(f"TB writer is {tensorboard_track} and writing to dir: runs/{date}")
             else:
@@ -516,7 +550,7 @@ class Learner(nn.Module):
             print("-"*25)
 
 
-        # self.writer.add_scalars(f'{run_date}/{self.model_name}/{time_of_day}/session_parameters', {
+        # self.writer.add_scalars(f'{date}/{self.model_name}/{time_of_day}/session_parameters', {
         #     "model_name": self.model_name,
         #     "no_of_train_images": self.no_of_train_images,
         #     "no_of_train_images": self.no_of_train_images,
@@ -531,26 +565,23 @@ class Learner(nn.Module):
             self.writer.add_text("no_of_training_images", str(self.no_of_train_images))
             self.writer.add_text("no_of_test_images", str(self.no_of_test_images))
 
-
-        loss_array = []
-
         # Train the model
         total_step = len(self.train_loader)
-        lowest_loss = 100
         test_acc = []
         test_loss = []
         train_acc = []
         train_loss = []
-        # each epoch
 
         start_time = time.time()
 
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', patience=5)
+
+        # each epoch
         for epoch in range(epochs):
 
             if epoch > 0:
                 print("Epoch number {} took: {:2f} seconds".format(epoch, (time.time() - start_time) / epoch))
                 
-
             self.train()
 
             cum_loss_train = 0
@@ -564,7 +595,7 @@ class Learner(nn.Module):
                 if tensorboard_track:
                     # tensoarboardX
                     img_x = vutils.make_grid(images, normalize=True, scale_each=True)
-                    self.writer.add_image(f'{run_date}/{self.model_name}/{time_of_day}/training_images_batchid_{i}', img_x, i)
+                    self.writer.add_image(f'{self.date}/{self.model_name}/{time_of_day}/training_images_batchid_{i}', img_x, i)
                     # features = images.view(self.batch_size, (9633792))
                     # self.writer.add_embedding(features, metadata=label, label_img=images.unsqueeze(1))
                 
@@ -573,31 +604,23 @@ class Learner(nn.Module):
                 loss = criterion(outputs, labels)
 
                 # print(f"Learning rate: ")
-                # for param_group in optimizer.param_groups:
+                # for param_group in self.optimizer.param_groups:
                 #     print(param_group['lr'])
 
                 # Backward and optimize
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 loss.backward()
-                optimizer.step()
-
-
-                if loss.item() < lowest_loss:
-                    lowest_loss = loss.item()
+                self.optimizer.step()
 
                 cum_loss_train += loss.item()
 
                 if tensorboard_track:
-                    self.writer.add_scalar(f'{run_date}/{self.model_name}/{time_of_day}/cum_loss_train', cum_loss_train, i)
+                    self.writer.add_scalar(f'{self.date}/{self.model_name}/{time_of_day}/cum_loss_train', cum_loss_train, i)
 
                 _, predicted = torch.max(outputs.data, 1)
                 total_train += labels.size(0)
                 correct_train += (predicted == labels).sum().item()
 
-                loss_array.append(loss.item())
-
-                if show_loss_every_step:
-                    print('Epoch [{}/{}], Training loss: {:.4f}'.format(epoch + 1, epochs, (cum_loss_train/total_step)))
 
             self.eval()
             with torch.no_grad():
@@ -623,17 +646,41 @@ class Learner(nn.Module):
                     wrong.append(predicted != labels)
 
             # if new training accuracy is higher than the last one, save checkpoint model
-            if epoch > 0 and ((100 * correct_train / total_train) < train_acc[-1]):
-                print("Save checkpoint since the loss is lower")
-                # self.save_checkpoint("")
 
             train_l = cum_loss_train / len(self.train_loader)
             test_l = cum_loss_test / len(self.test_loader)
             train_a = 100 * correct_train / total_train
             test_a = 100 * correct / total
+            
+            scheduler.step(test_l)
+
+            if hasattr(self, "test_acc"):
+                is_best = test_a > max(self.test_acc)
+            else:
+                is_best = test_a > max(test_acc) if len(test_acc) > 0 else True
+
+            if len(test_acc) > 0:
+                if hasattr(self, "test_acc"):
+                    print("TEST ACC ER KOMID")
+                    is_best = test_a > max(self.test_acc)
+                    print(f"train_a: {test_a} - max(self.test_acc): {max(self.test_acc)}")
+                else:
+                    is_best = test_a > max(test_acc)
+                    print(f"train_a: {test_a} - max(self.test_acc): {max(test_acc)}")
+
+            if is_best and save_best:
+                self.save_checkpoint({
+                    'epoch': epoch + 1,
+                    'training_hash': self.training_hash,
+                    'arch': self.model_name,
+                    'state_dict': self.state_dict(),
+                    'optimizer': self.optimizer.state_dict(),
+                    'best_acc': test_a
+                })                
+                print("New checkpoint saved(rising training accuracy)")
 
             if tensorboard_track:
-                self.writer.add_scalars(f'{run_date}/{self.model_name}/{time_of_day}', {
+                self.writer.add_scalars(f'{self.date}/{self.model_name}/{time_of_day}', {
                     "training_loss:": train_l,
                     "test_loss": test_l,
                     "train_accuracy": train_a,
@@ -645,7 +692,8 @@ class Learner(nn.Module):
             train_acc.append(train_a)
             test_acc.append(test_a)
 
-            self.save_training_row_to_pd(epoch, train_l, train_a, test_l, test_a)
+            if pandas_track:
+                self.save_training_row_to_pd(epoch, train_l, train_a, test_l, test_a)
 
             if tensorboard_track:
                 for name, param in self.named_parameters():
@@ -666,7 +714,9 @@ class Learner(nn.Module):
 
         self.total_training_time = (time.time() - start_time)
 
-        self.writer.close()
+        if tensorboard_track:
+            self.writer.close()
+
         print(f"Training time per epoch(average): { round(self.total_training_time / self.total_epochs, 2) }")
         self.show_training_graph()
 
