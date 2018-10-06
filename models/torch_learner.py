@@ -1,4 +1,5 @@
 import os
+import math
 from collections import Counter
 from IPython.core.debugger import set_trace
 
@@ -69,41 +70,6 @@ def get_model(model_name, pretrained):
     }
     return model_dict["{}".format(model_name)]
 
-class FeatureExtractor(nn.Module):
-    
-    def __init__(self, model_name, pretrained=False):
-        super(FeatureExtractor, self).__init__()
-
-        self.model_name = model_name
-
-        if "dense" in model_name.lower():
-            model = get_model(model_name, pretrained)
-            self.features = nn.Sequential(*list(model.features.children()))
-        elif "resnet" in model_name.lower():
-            model = get_model(model_name, pretrained)
-            self.features = nn.Sequential(*list(model.children())[:-1])
-        elif "inception" in model_name.lower():
-            model = get_model(model_name, pretrained)
-            model.aux_logits = False
-            del  model._modules['fc']
-            model.fc = nn.Linear(2048, 512)
-            self.features = model
-
-        # bottleneck_tensor_size = 2048 f inception
-
-        if not model_name:
-            raise ValueError("Model name is missing, please pass in model_name parameter")
-
-        # freeze the layers since this is a feature extractor
-        self.freeze()
-
-    def __sizeof__(self):
-        super(FeatureExtractor, self).__sizeof__()
-
-    def forward(self, x):
-        x = self.features(x)
-        return x
-
 class ModelEnsemble(nn.Module):
     def __init__(self, n_classes):
         super(ModelEnsemble, self).__init__()
@@ -134,6 +100,7 @@ class Learner(nn.Module):
         self.model_name = model_name
         self.img_width, self.img_height = img_size
         self.date = date
+        self.precompute = precompute
         self.training_hash = generate_hash(16)
         self.model_path = f"saved_tensors/models/{self.model_name}_{self.training_hash}"
 
@@ -142,14 +109,18 @@ class Learner(nn.Module):
         if precompute:
             # TODO: Implement..
             print("=> Extracting bottleneck features")
-            self.bottleneck_features = FeatureExtractor(self.model_name)
+            extractor = FeatureExtractor(self.model_name, self.train_loader, self.test_loader)
+            
+            if not hasattr(self, 'train_loader'):
+                raise ValueError("Data has not yet been loaded, unable to precalculate bottleneck features")
+
+            self.bottleneck_features = extractor.extract_features()
 
         if freeze_all:
             print("Freezing all layers until classifier")
             self.freeze()
         
         self.replace_top_layer(model)
-        self.init_device()
 
     def forward(self, x):
         out = self.features(x)
@@ -187,7 +158,67 @@ class Learner(nn.Module):
             # del model._modules['fc']
             # self.features = nn.Sequential(*list(model.children())[:-1])
             self.fc = nn.Linear(in_features=2048, out_features=self.num_classes, bias=True)
-            
+
+    def lr_find(self, init_value=1e-5, final_value=100., beta=0.98, optimizer=None):
+
+        if optimizer is None:
+            optimizer = "Adam"
+
+        self.optimizer, self.optimizer_name = self.set_optimizer(optimizer, lr=init_value)
+
+        if self.optimizer is None:
+            raise ValueError("No optimizer is set, pass parameter optimizer to set optimizer before running LR finder")
+        print("=> Plotting Learning rate")
+        num = len(self.train_loader) - 1
+        mult = (final_value / init_value) ** (1/num)
+        lr = init_value
+        self.optimizer.param_groups[0]['lr'] = lr
+        self.criterion = nn.CrossEntropyLoss()
+        avg_loss = 0.
+        best_loss = 0.
+        batch_num = 0
+        losses = []
+        log_lrs = []
+        for idx, data in enumerate(self.train_loader):
+            print(f"Batch no: {idx}")
+            batch_num += 1
+            #As before, get the loss for this mini-batch of inputs/outputs
+            inputs, labels, index, path = data
+            inputs, labels = inputs.to(self.device), labels.to(self.device)
+            self.optimizer.zero_grad()
+            outputs = self(inputs)
+            loss = self.criterion(outputs, labels)
+            #Compute the smoothed loss
+            #avg_loss = beta * avg_loss + (1-beta) * loss.data[0]
+            print(loss.item(), lr, mult)
+            avg_loss = beta * avg_loss + (1-beta) * loss.item()
+            smoothed_loss = avg_loss / (1 - beta**batch_num)
+            #Stop if the loss is exploding
+            if batch_num > 1 and smoothed_loss > 4 * best_loss:
+                print("The loss is exploding")
+                print(f"The best loss is: {best_loss}")
+                print(f"Parameter: {4 * best_loss}")
+                plt.ylabel('loss')
+                plt.xlabel('Learning rate(log scale)')
+                plt.plot(log_lrs, losses)
+                return
+            #Record the best loss
+            if smoothed_loss < best_loss or batch_num == 1:
+                best_loss = smoothed_loss
+            #Store the values
+            losses.append(smoothed_loss)
+            log_lrs.append(math.log10(lr))
+            #Do the SGD step
+            loss.backward()
+            self.optimizer.step()
+            #Update the lr for the next step
+            lr *= mult
+            self.optimizer.param_groups[0]['lr'] = lr
+        
+        plt.ylabel('loss')
+        plt.xlabel('Learning rate(log scale)')
+        plt.plot(log_lrs, losses)
+        
     def freeze(self):
         for param in self.parameters():
             param.requires_grad = False
@@ -213,6 +244,19 @@ class Learner(nn.Module):
         ax[0, 1].plot(self.train_acc, label="Training accuracy")
         ax[0, 1].legend()
 
+    def set_optimizer(self, optimizer, lr):
+        opt_d = {
+            "Adam": [
+                torch.optim.Adam(self.parameters(), lr=self.lr if hasattr(self, 'lr') else lr),
+                "Adam"
+            ],
+            "SGD": [
+                torch.optim.SGD(self.parameters(), lr=self.lr if hasattr(self, 'lr') else lr, momentum=0.9, weight_decay=1e5),
+                "Gradient Descent"
+            ]
+        }
+        return opt_d[optimizer]
+        
     def init_device(self):      
         if torch.cuda.is_available():
             print("Using GPU")
@@ -308,6 +352,8 @@ class Learner(nn.Module):
         self.batch_size = batch_size
         self.no_of_train_images = len(train_dataset.index)
         self.no_of_test_images = len(test_dataset.index)
+
+        self.init_device()
 
         if train_dataset.subset and test_dataset.subset:
             test_subSampler = SubsetRandomSampler(test_dataset.index)
@@ -515,20 +561,24 @@ class Learner(nn.Module):
 
         if self.num_classes > 2:
             # Loss and optimizer
-            self.criterion = "Cross Entropy Loss"
-            criterion = nn.CrossEntropyLoss()
+            self.criterion_name = "Cross Entropy Loss"
+            self.criterion = nn.CrossEntropyLoss()
         else:
-            self.criterion = "Binary Cross Entropy Loss"
+            self.criterion_name = "Binary Cross Entropy Loss"
 
         # TODO: Set optimizer name with switch statem. / if else
         
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+
+
+        # self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         # self.optimizer = torch.optim.SGD(self.parameters(), momentum=0.9, weight_decay= lr=lr)
-        self.optimizer_name = "Adam"
+        # self.optimizer_name = "Adam"
 
         self.lr = lr
         self.epochs = epochs
         self.total_epochs = (self.total_epochs + epochs) if hasattr(self, "total_epochs") else epochs
+
+        self.optimizer, self.optimizer_name = self.set_optimizer("Adam")
 
         if self.epochs:
             print("-"*25)
@@ -539,7 +589,7 @@ class Learner(nn.Module):
             print(f"No of test images: {self.no_of_test_images}")
             print(f"Number of epochs: {self.epochs}")
             print(f"No of output classes: {self.num_classes}")
-            print(f"Criterion: {self.criterion}")
+            print(f"Criterion: {self.criterion_name}")
             print(f"Save best model is set to: {save_best}")
             print(f"Pandas tracking is set to: {pandas_track}")
             if tensorboard_track:
@@ -601,7 +651,7 @@ class Learner(nn.Module):
                 
                 # Forward pass
                 outputs = self(images)
-                loss = criterion(outputs, labels)
+                loss = self.criterion(outputs, labels)
 
                 # print(f"Learning rate: ")
                 # for param_group in self.optimizer.param_groups:
@@ -636,7 +686,7 @@ class Learner(nn.Module):
                     labels = labels.to(self.device)
                     
                     outputs = self(images)
-                    loss = criterion(outputs, labels)
+                    loss = self.criterion(outputs, labels)
 
                     cum_loss_test += loss.item()
 
@@ -737,3 +787,58 @@ class Learner(nn.Module):
                 correct += (predicted == labels).sum().item()
 
             print('Test Accuracy of the model on the {} test images: {} %'.format(self.no_of_test_images, round(100 * correct / total, 2)))
+
+
+class FeatureExtractor(Learner):
+
+    def __init__(self, model_name, train_dataloader, test_dataloader, pretrained=False):
+        super(FeatureExtractor, self).__init__()
+
+        self.train_dataloader = train_dataloader
+        self.test_dataloader = test_dataloader
+        self.model_name = model_name
+
+        if "dense" in model_name.lower():
+            model = get_model(model_name, pretrained)
+            self.features = nn.Sequential(*list(model.features.children()))
+        elif "resnet" in model_name.lower():
+            model = get_model(model_name, pretrained)
+            self.features = nn.Sequential(*list(model.children())[:-1])
+        elif "inception" in model_name.lower():
+            model = get_model(model_name, pretrained)
+            model.aux_logits = False
+            del model._modules['fc']
+            model.fc = nn.Linear(2048, 512)
+            self.features = model
+
+        self.init_device()
+
+        if not model_name:
+            raise ValueError(
+                "Model name is missing, please pass in model_name parameter")
+
+    def __sizeof__(self):
+        super(FeatureExtractor, self).__sizeof__()
+
+    def forward(self, x):
+        x = self.features(x)
+        return x
+
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def extract_features(self):
+        print("=> Starting to extract features")
+
+        bottleneck_features = []
+        for images, labels, index, path in tqdm(self.train_dataloader):
+            images.to(self.device)
+            labels.to(self.device)
+            
+            outputs = self(images)
+
+            bottleneck_features.append(outputs)
+        
+        return torch.stack(bottleneck_features)
+            
