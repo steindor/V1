@@ -180,7 +180,6 @@ class Learner(nn.Module):
         losses = []
         log_lrs = []
         for idx, data in enumerate(self.train_loader):
-            print(f"Batch no: {idx}")
             batch_num += 1
             #As before, get the loss for this mini-batch of inputs/outputs
             inputs, labels, index, path = data
@@ -196,8 +195,8 @@ class Learner(nn.Module):
             if batch_num > 1 and smoothed_loss > 4 * best_loss:
                 plt.ylabel('loss')
                 plt.xlabel('Learning rate(log scale)')
-                plt.plot(log_lrs, losses)
-                return
+                plt.plot(log_lrs[:-5], losses[:-5])
+                return log_lrs, losses
             #Record the best loss
             if smoothed_loss < best_loss or batch_num == 1:
                 best_loss = smoothed_loss
@@ -213,7 +212,7 @@ class Learner(nn.Module):
         
         plt.ylabel('loss')
         plt.xlabel('Learning rate(log scale)')
-        plt.plot(log_lrs, losses)
+        plt.plot(log_lrs[:-5], losses[:-5])
         
     def freeze(self):
         for param in self.parameters():

@@ -1,0 +1,2 @@
+training_hash,model_name,model_path,train_loss,train_acc,test_loss,test_acc,frozen,epoch,train_img_count,test_img_count,learning_rate
+cdb3b76d87d0a263,resnet18,saved_tensors/models/resnet18_cdb3b76d87d0a263,155505005.7138,11.2033,91349.8828,10.9804,False,1,3133,765,1e-06
