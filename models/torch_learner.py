@@ -190,14 +190,10 @@ class Learner(nn.Module):
             loss = self.criterion(outputs, labels)
             #Compute the smoothed loss
             #avg_loss = beta * avg_loss + (1-beta) * loss.data[0]
-            print(loss.item(), lr, mult)
             avg_loss = beta * avg_loss + (1-beta) * loss.item()
             smoothed_loss = avg_loss / (1 - beta**batch_num)
             #Stop if the loss is exploding
             if batch_num > 1 and smoothed_loss > 4 * best_loss:
-                print("The loss is exploding")
-                print(f"The best loss is: {best_loss}")
-                print(f"Parameter: {4 * best_loss}")
                 plt.ylabel('loss')
                 plt.xlabel('Learning rate(log scale)')
                 plt.plot(log_lrs, losses)
