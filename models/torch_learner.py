@@ -549,7 +549,7 @@ class Learner(nn.Module):
         torch.save(state, f'{self.model_path}_model_best.pth.tar')
         print(f"Saved model to {self.model_path}_model_best.pth.tar")
 
-    def fit(self, epochs=5, lr=0.001, tensorboard_track=False, save_best=False, pandas_track=False):
+    def fit(self, epochs=5, lr=0.001, tensorboard_track=False, save_best=False, pandas_track=False, optimizer=None):
  
         if tensorboard_track:
             self.writer = SummaryWriter(f'runs/{date}')
@@ -578,7 +578,11 @@ class Learner(nn.Module):
         self.epochs = epochs
         self.total_epochs = (self.total_epochs + epochs) if hasattr(self, "total_epochs") else epochs
 
-        self.optimizer, self.optimizer_name = self.set_optimizer("Adam")
+        if optimizer is None:
+            self.optimizer, self.optimizer_name = self.set_optimizer("Adam", lr)
+        else:
+            self.optimizer, self.optimizer_name = self.set_optimizer(optimizer, lr)
+
 
         if self.epochs:
             print("-"*25)
