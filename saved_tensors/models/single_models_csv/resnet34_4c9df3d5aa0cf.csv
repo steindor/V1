@@ -1,0 +1,9 @@
+training_hash,model_name,model_path,train_loss,train_acc,test_loss,test_acc,frozen,epoch,train_img_count,test_img_count,learning_rate
+4c9df3d5aa0cf16d,resnet34,saved_tensors/models/resnet34_4c9df3d5aa0cf16d,105.1453,67.986,72.1005,67.9739,True,1,3133,765,0.001
+4c9df3d5aa0cf16d,resnet34,saved_tensors/models/resnet34_4c9df3d5aa0cf16d,67.6939,67.986,60.425,67.9739,True,2,3133,765,0.001
+4c9df3d5aa0cf16d,resnet34,saved_tensors/models/resnet34_4c9df3d5aa0cf16d,59.2768,67.986,51.2488,67.9739,True,3,3133,765,0.001
+4c9df3d5aa0cf16d,resnet34,saved_tensors/models/resnet34_4c9df3d5aa0cf16d,52.4986,67.986,44.3921,67.9739,True,4,3133,765,0.001
+4c9df3d5aa0cf16d,resnet34,saved_tensors/models/resnet34_4c9df3d5aa0cf16d,45.1984,67.986,39.1068,67.9739,True,5,3133,765,0.001
+4c9df3d5aa0cf16d,resnet34,saved_tensors/models/resnet34_4c9df3d5aa0cf16d,42.1799,67.986,34.9828,67.9739,True,6,3133,765,0.001
+4c9df3d5aa0cf16d,resnet34,saved_tensors/models/resnet34_4c9df3d5aa0cf16d,35.8196,67.986,30.7951,67.9739,True,7,3133,765,0.001
+4c9df3d5aa0cf16d,resnet34,saved_tensors/models/resnet34_4c9df3d5aa0cf16d,30.0914,67.986,25.6071,67.9739,True,8,3133,765,0.001

@@ -101,8 +101,7 @@ class Learner(nn.Module):
         self.img_width, self.img_height = img_size
         self.date = date
         self.precompute = precompute
-        self.training_hash = generate_hash(16)
-        self.model_path = f"saved_tensors/models/{self.model_name}_{self.training_hash}"
+        self.set_training_hash()
 
         model = get_model(model_name, pretrained=pretrained)
 
@@ -114,24 +113,57 @@ class Learner(nn.Module):
             if not hasattr(self, 'train_loader'):
                 raise ValueError("Data has not yet been loaded, unable to precalculate bottleneck features")
 
-            self.bottleneck_features = extractor.extract_features()
+            # bottleneck_features, labels, index, path
+            features_trn_dataset, features_test_dataset = extractor.extract_features()
+            
+            # new training datasets with feature tensors
+            trn_data_loader = torch.utils.data.TensorDataset(features_trn_dataset[0], features_trn_dataset[1], features_trn_dataset[2], features_trn_dataset[3])
+            test_data_loader = torch.utils.data.TensorDataset(features_test_dataset[0], features_test_dataset[1], features_test_dataset[2], features_test_dataset[3])
+            
+            self.train_loader = torch.utils.data.DataLoader(trn_data_loader, batch_size=self.batch_size, shuffle=True, num_workers=4)
+            self.test_loader = torch.utils.data.DataLoader(test_data_loader, batch_size=self.batch_size, shuffle=False, num_workers=4)
+            
+            # self.fc1 = nn.Linear(in_features=features_trn_dataset[0].shape[1]*self.batch_size, out_features=512)
+            print(f"In features: {features_trn_dataset[0].shape[1]}")
 
-        if freeze_all:
-            print("Freezing all layers until classifier")
+            self.fc1 = nn.Linear(in_features=features_trn_dataset[0].shape[1], out_features=256)
+            self.fc2 = nn.Linear(in_features=256, out_features=self.num_classes)
+
             self.freeze()
+
+        else:
+            print("Not precomputed features")
+            if freeze_all:
+                print("Freezing all layers until classifier")
+                self.freeze()
         
         self.replace_top_layer(model)
 
     def forward(self, x):
-        out = self.features(x)
-        # models that use global average pooling 
-        if "densenet" in self.model_name:
-            out = F.avg_pool2d(out, kernel_size=7, stride=1).view(out.size(0), -1)
+        if self.precompute:
+            # e.g. 512 x 1 x 1 => 512
+            out = x.reshape(x.size(0), -1)
+            out = self.fc1(out)
+            out = self.fc2(out)
+            return out
         else:
-            out = out.reshape(out.size(0), -1)
+            out = self.features(x)
+            # models that use global average pooling 
+            if "densenet" in self.model_name:
+                out = F.avg_pool2d(out, kernel_size=7, stride=1).view(out.size(0), -1)
+            else:
+                out = out.reshape(out.size(0), -1)
 
-        out = self.fc(out)
-        return out
+            out = self.fc(out)
+            return out
+
+    def set_training_hash(self, training_hash=None):
+        if training_hash is None:
+            self.training_hash = generate_hash(16)
+            self.model_path = f"saved_tensors/models/{self.model_name}_{self.training_hash}"
+        else:
+            self.training_hash = training_hash
+            self.model_path = f"saved_tensors/models/{self.model_name}_{training_hash}"
 
     def replace_top_layer(self, model):
         # works
@@ -183,7 +215,7 @@ class Learner(nn.Module):
             batch_num += 1
             #As before, get the loss for this mini-batch of inputs/outputs
             inputs, labels, index, path = data
-            inputs, labels = inputs.to(self.device), labels.to(self.device)
+            inputs, labels = inputs.to(self.device).requires_grad_(True), labels.to(self.device)
             self.optimizer.zero_grad()
             outputs = self(inputs)
             loss = self.criterion(outputs, labels)
@@ -203,16 +235,17 @@ class Learner(nn.Module):
             #Store the values
             losses.append(smoothed_loss)
             log_lrs.append(math.log10(lr))
+            
             #Do the SGD step
             loss.backward()
             self.optimizer.step()
             #Update the lr for the next step
             lr *= mult
             self.optimizer.param_groups[0]['lr'] = lr
-        
+
         plt.ylabel('loss')
         plt.xlabel('Learning rate(log scale)')
-        plt.plot(log_lrs[:-5], losses[:-5])
+        plt.plot(log_lrs,losses)
         
     def freeze(self):
         for param in self.parameters():
@@ -526,16 +559,20 @@ class Learner(nn.Module):
             else:
                 print("=> Loading model from training_hash")
                 path = f"saved_tensors/models/{self.model_name}_{self.training_hash}_model_best.pth.tar"
+                
 
 
         if os.path.isfile(path):
             print("=> loading checkpoint '{}'".format(path))
             checkpoint = torch.load(path)
             start_epoch = checkpoint['epoch']
-            # self.best_acc = checkpoint['best_acc']
             self.load_state_dict(checkpoint['state_dict'])
-            self.training_hash = checkpoint['training_hash']
+            self.set_training_hash(checkpoint['training_hash'])
             self.optimizer.load_state_dict(checkpoint['optimizer'])
+            self.test_acc = checkpoint['test_acc']
+            self.test_loss = checkpoint['test_loss']
+            self.train_acc = checkpoint['train_acc']
+            self.train_loss = checkpoint['train_loss']
             print("=> loaded checkpoint '{}' (epoch {}) with best accuracy: {}".format(path, checkpoint['epoch'], checkpoint['best_acc']))
         else:
             print("=> no checkpoint found at '{}'".format(path))
@@ -561,14 +598,6 @@ class Learner(nn.Module):
         else:
             self.criterion_name = "Binary Cross Entropy Loss"
 
-        # TODO: Set optimizer name with switch statem. / if else
-        
-
-
-        # self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        # self.optimizer = torch.optim.SGD(self.parameters(), momentum=0.9, weight_decay= lr=lr)
-        # self.optimizer_name = "Adam"
-
         self.lr = lr
         self.epochs = epochs
         self.total_epochs = (self.total_epochs + epochs) if hasattr(self, "total_epochs") else epochs
@@ -589,6 +618,7 @@ class Learner(nn.Module):
             print(f"Number of epochs: {self.epochs}")
             print(f"No of output classes: {self.num_classes}")
             print(f"Criterion: {self.criterion_name}")
+            print(f"Optimizer: {self.optimizer_name}")
             print(f"Save best model is set to: {save_best}")
             print(f"Pandas tracking is set to: {pandas_track}")
             if tensorboard_track:
@@ -598,16 +628,6 @@ class Learner(nn.Module):
                     f"TB writer is {tensorboard_track} - set to True to enable TB tracking")
             print("-"*25)
 
-
-        # self.writer.add_scalars(f'{date}/{self.model_name}/{time_of_day}/session_parameters', {
-        #     "model_name": self.model_name,
-        #     "no_of_train_images": self.no_of_train_images,
-        #     "no_of_train_images": self.no_of_train_images,
-        #     "batch_size": self.batch_size,
-        #     "learning_rate": self.lr,
-        #     "Optimizer": "Adam"
-        # }, 0)
-
         if tensorboard_track:
             self.writer.add_text("model_name", str(self.model_name))
             self.writer.add_text("batch_size", str(self.batch_size))
@@ -616,10 +636,12 @@ class Learner(nn.Module):
 
         # Train the model
         total_step = len(self.train_loader)
-        test_acc = []
-        test_loss = []
-        train_acc = []
-        train_loss = []
+        if not hasattr(self, "test_acc"):
+            #initiate if not done, else keep on appending to these arrays
+            self.test_acc = []
+            self.test_loss = []
+            self.train_acc = []
+            self.train_loss = []
 
         start_time = time.time()
 
@@ -638,11 +660,11 @@ class Learner(nn.Module):
             correct_train = 0
 
             for i, (images, labels, path, index) in enumerate(self.train_loader):
-                images = images.to(self.device)
+                images = images.to(self.device).requires_grad_(True)
                 labels = labels.to(self.device)
 
                 if tensorboard_track:
-                    # tensoarboardX
+                    # tensorboardX
                     img_x = vutils.make_grid(images, normalize=True, scale_each=True)
                     self.writer.add_image(f'{self.date}/{self.model_name}/{time_of_day}/training_images_batchid_{i}', img_x, i)
                     # features = images.view(self.batch_size, (9633792))
@@ -651,10 +673,6 @@ class Learner(nn.Module):
                 # Forward pass
                 outputs = self(images)
                 loss = self.criterion(outputs, labels)
-
-                # print(f"Learning rate: ")
-                # for param_group in self.optimizer.param_groups:
-                #     print(param_group['lr'])
 
                 # Backward and optimize
                 self.optimizer.zero_grad()
@@ -703,30 +721,18 @@ class Learner(nn.Module):
             
             scheduler.step(test_l)
 
-            if hasattr(self, "test_acc"):
-                is_best = test_a > max(self.test_acc)
-            else:
-                is_best = test_a > max(test_acc) if len(test_acc) > 0 else True
+            # if hasattr(self, "test_acc") and len(self.test_acc) > 0:
+            #     is_best = test_a > max(self.test_acc)
+            # else:
+            #     is_best = test_a > max(test_acc) if len(test_acc) > 0 else True
 
-            if len(test_acc) > 0:
-                if hasattr(self, "test_acc"):
-                    print("TEST ACC ER KOMID")
-                    is_best = test_a > max(self.test_acc)
-                    print(f"train_a: {test_a} - max(self.test_acc): {max(self.test_acc)}")
-                else:
-                    is_best = test_a > max(test_acc)
-                    print(f"train_a: {test_a} - max(self.test_acc): {max(test_acc)}")
-
-            if is_best and save_best:
-                self.save_checkpoint({
-                    'epoch': epoch + 1,
-                    'training_hash': self.training_hash,
-                    'arch': self.model_name,
-                    'state_dict': self.state_dict(),
-                    'optimizer': self.optimizer.state_dict(),
-                    'best_acc': test_a
-                })                
-                print("New checkpoint saved(rising training accuracy)")
+            # if len(test_acc) > 0:
+            #     if hasattr(self, "test_acc"):
+            #         is_best = test_a > max(self.test_acc)
+            #         print(f"train_a: {test_a} - max(self.test_acc): {max(self.test_acc)}")
+            #     else:
+            #         is_best = test_a > max(test_acc)
+            #         print(f"train_a: {test_a} - max(self.test_acc): {max(test_acc)}")
 
             if tensorboard_track:
                 self.writer.add_scalars(f'{self.date}/{self.model_name}/{time_of_day}', {
@@ -736,10 +742,26 @@ class Learner(nn.Module):
                     "test_accuracy": test_a
                 }, i)
 
-            train_loss.append(train_l)
-            test_loss.append(test_l)
-            train_acc.append(train_a)
-            test_acc.append(test_a)
+            self.train_loss.append(train_l)
+            self.test_loss.append(test_l)
+            self.train_acc.append(train_a)
+            self.test_acc.append(test_a)
+
+            # if is_best and save_best:
+            #     self.save_checkpoint({
+            #         'epoch': epoch + 1,
+            #         'training_hash': self.training_hash,
+            #         'arch': self.model_name,
+            #         'state_dict': self.state_dict(),
+            #         'optimizer': self.optimizer.state_dict(),
+            #         'best_acc': test_a,
+            #         'train_acc': self.train_acc,
+            #         'train_loss': self.train_loss,
+            #         'test_acc': self.test_acc,
+            #         'test_loss': self.test_loss
+            #     })
+            #     print("New checkpoint saved(rising training accuracy)")
+
 
             if pandas_track:
                 self.save_training_row_to_pd(epoch, train_l, train_a, test_l, test_a)
@@ -749,17 +771,6 @@ class Learner(nn.Module):
                     self.writer.add_histogram(name, param.clone().cpu().data.numpy(), (epoch+1))
 
             print('Epoch [{}/{}], Training loss: {:.4f} - Training accuracy: {:.2f}% Test Loss: {:.2f} - Test accuracy: {:.2f}%'.format(epoch+1, epochs, (cum_loss_train/total_step), (100 * correct_train / total_train), cum_loss_test / len(self.test_loader), 100 * correct / total))
-
-        if not hasattr(self, "test_loss"):
-            self.test_loss = [] 
-            self.train_loss = []
-            self.train_acc = []
-            self.test_acc = []
-
-        self.test_loss += test_loss
-        self.train_loss += train_loss
-        self.test_acc += test_acc
-        self.train_acc += train_acc
 
         self.total_training_time = (time.time() - start_time)
 
@@ -793,8 +804,8 @@ class FeatureExtractor(Learner):
     def __init__(self, model_name, train_dataloader, test_dataloader, pretrained=False):
         super(FeatureExtractor, self).__init__()
 
-        self.train_dataloader = train_dataloader
-        self.test_dataloader = test_dataloader
+        self.train_dataloader_extr = train_dataloader
+        self.test_dataloader_extr = test_dataloader
         self.model_name = model_name
 
         if "dense" in model_name.lower():
@@ -803,6 +814,7 @@ class FeatureExtractor(Learner):
         elif "resnet" in model_name.lower():
             model = get_model(model_name, pretrained)
             self.features = nn.Sequential(*list(model.children())[:-1])
+            self.freeze()
         elif "inception" in model_name.lower():
             model = get_model(model_name, pretrained)
             model.aux_logits = False
@@ -813,8 +825,7 @@ class FeatureExtractor(Learner):
         self.init_device()
 
         if not model_name:
-            raise ValueError(
-                "Model name is missing, please pass in model_name parameter")
+            raise ValueError("Model name is missing, please pass in model_name parameter")
 
     def __sizeof__(self):
         super(FeatureExtractor, self).__sizeof__()
@@ -830,14 +841,51 @@ class FeatureExtractor(Learner):
     def extract_features(self):
         print("=> Starting to extract features")
 
-        bottleneck_features = []
-        for images, labels, index, path in tqdm(self.train_dataloader):
-            images.to(self.device)
-            labels.to(self.device)
-            
-            outputs = self(images)
+        with torch.no_grad():
 
-            bottleneck_features.append(outputs)
-        
-        return torch.stack(bottleneck_features)
-            
+            bottleneck_features_trn = []
+            labels_arr_trn = []
+            index_arr_trn = []
+            path_arr_trn = []
+            for images, labels, index, path in tqdm(self.train_dataloader_extr):
+                images.to(self.device)
+                labels.to(self.device)
+
+                outputs = self(images)
+
+                bottleneck_features_trn.append(outputs)
+                labels_arr_trn.append(labels)
+                index_arr_trn.append(index)
+                # need to return a tuple containing 4 elements to be able to use TensorDataset and fit the right way
+                # if needed in fit method, one hot encoding might be a work around
+                path_arr_trn.append(torch.Tensor(list(range(0, len(path)))))
+
+
+            bottleneck_features_test = []
+            labels_arr_test = []
+            index_arr_test = []
+            path_arr_test = []
+            for images, labels, index, path in tqdm(self.test_dataloader_extr):
+                images.to(self.device)
+                labels.to(self.device)
+
+                outputs = self(images)
+
+                bottleneck_features_test.append(outputs)
+                labels_arr_test.append(labels)
+                index_arr_test.append(index)
+                # need to return a tuple containing 4 elements to be able to use TensorDataset and fit the right way
+                # if needed in fit method, one hot encoding might be a work around
+                path_arr_test.append(torch.Tensor(list(range(0, len(path)))))
+
+
+            return_tensor_trn = torch.cat(bottleneck_features_trn, 0)
+            labels_arr_trn = torch.cat(labels_arr_trn,0)
+            index_arr_trn = torch.cat(index_arr_trn, 0)
+            path_arr_trn = torch.cat(path_arr_trn, 0)
+            return_tensor_test = torch.cat(bottleneck_features_test, 0)
+            labels_arr_test = torch.cat(labels_arr_test,0)
+            index_arr_test = torch.cat(index_arr_test, 0)
+            path_arr_test = torch.cat(path_arr_test, 0)
+            print(f"=> Done extracting features, returning a feature tensor of shape: {return_tensor_trn.shape} and label tensor of shape: {labels_arr_trn.shape} for training set")
+            return (return_tensor_trn, labels_arr_trn, index_arr_trn, path_arr_trn), (return_tensor_test, labels_arr_test, index_arr_test, path_arr_test)

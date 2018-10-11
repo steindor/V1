@@ -1,9 +1,11 @@
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
+import torchvision.transforms.functional as F
 from glob import glob
 from tqdm import tqdm
 from collections import Counter
+import modules.custom_transforms as custom_transforms
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -25,7 +27,6 @@ class ImageFolderWithPaths(datasets.ImageFolder):
         # make a new tuple that includes original and the path
         tuple_with_path = (original_tuple + (path,))
         return tuple_with_path
-
 
 
 class Derma(Dataset):
@@ -187,14 +188,18 @@ class Derma(Dataset):
         if self.augment:
             train_transform = transforms.Compose([
                 transforms.RandomRotation((90,270)),
-                transforms.Resize(size=self.img_size),
-                # transforms.CenterCrop(),
+                custom_transforms.RatioCrop(ratio=0.9, random=True),
+                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+                transforms.CenterCrop(224),
+                # transforms.Resize(size=self.img_size),
                 transforms.RandomHorizontalFlip(),
+                transforms.RandomVerticalFlip(),
                 transforms.ToTensor(),
                 normalize,
             ])
         else:
             train_transform = transforms.Compose([
+                custom_transforms.ChangeBrightness(1.2),
                 transforms.Resize(size=self.img_size),
                 transforms.ToTensor(),
                 normalize,
