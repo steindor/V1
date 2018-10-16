@@ -1,8 +1,11 @@
 *.ipynb
 *.jpg
+*.png
 *.pyc
 *.pt
+*.txt
 runs/
 .vscode/
 runs/
 TODO
+isic_2018/

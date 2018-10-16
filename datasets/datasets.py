@@ -1,7 +1,10 @@
+import torch
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, DataLoader
+from IPython.core.debugger import set_trace
 from torch.utils.data.sampler import SubsetRandomSampler
 import torchvision.transforms.functional as F
+from PIL import Image
 from glob import glob
 from tqdm import tqdm
 from collections import Counter
@@ -9,9 +12,44 @@ import modules.custom_transforms as custom_transforms
 import matplotlib.pyplot as plt
 import numpy as np
 import random
-import torch
+
 
 # TODO: Implementera validation fold i x split
+
+def get_mean_and_std(dataset):
+    '''Compute the mean and std value of dataset.'''
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
+    mean = torch.zeros(3)
+    std = torch.zeros(3)
+    print('==> Computing mean and std..')
+    for inputs, targets in dataloader:
+        for i in range(3):
+            mean[i] += inputs[:, i, :, :].mean()
+            std[i] += inputs[:, i, :, :].std()
+    mean.div_(len(dataset))
+    std.div_(len(dataset))
+    return mean, std
+
+
+def binarize_image(img_path, threshold):
+    """Binarize an image."""
+    image_file = Image.open(img_path)
+    image = image_file.convert('L')  # convert image to monochrome
+    image = image.resize((388, 388), Image.ANTIALIAS)
+    image = np.array(image)
+    image = binarize_array(image, threshold)
+    return image
+
+
+def binarize_array(numpy_array, threshold=200):
+    """Binarize a numpy array."""
+    for i in range(len(numpy_array)):
+        for j in range(len(numpy_array[0])):
+            if numpy_array[i][j] > threshold:
+                numpy_array[i][j] = 255
+            else:
+                numpy_array[i][j] = 0
+    return numpy_array
 
 class ImageFolderWithPaths(datasets.ImageFolder):
     """
@@ -56,7 +94,6 @@ class Derma(Dataset):
         self.subset = subset
         self.subset_percentage = subset_percentage
         self.transforms_list = [transform.split(")")[0].strip()+")" for transform in str(self.transform()).split("\n")[1:-3]]
-
 
         self.dataset = ImageFolderWithPaths(self.dataset_path, transform=self.transform())
         self.image_count = int(np.floor(subset_percentage * len(self)))
@@ -274,3 +311,87 @@ class FeaturesDataset(Dataset):
 
     def __len__(self):
         return len(self.labellst)
+
+
+class SegDataset(Dataset):
+    def __init__(self, root_folder, input_img_resize=(572, 572), output_img_resize=(388, 388),
+                 X_transform=None, y_transform=None):
+        """
+            A dataset loader taking images paths as argument and return
+            as them as tensors from getitem()
+            Args:
+                root_folder:
+                    root_folder/train/images
+                    root_folder/train/masks
+                    root_folder/test/images
+                    root_folder/test/masks
+                    
+                input_img_resize (tuple): Tuple containing the new size of the input images
+                output_img_resize (tuple): Tuple containing the new size of the output images
+                X_transform (callable, optional): A function/transform that takes in 2 numpy arrays.
+                    Assumes X_data and y_data are not None.
+                    (train_img, mask_img) and returns a transformed version with the same signature
+                y_transform (callable, optional): A function/transform that takes in 2 numpy arrays.
+                    Assumes X_data and y_data are not None.
+                    (train_img, mask_img) and returns a transformed version with the same signature
+        """
+        self.root_folder = root_folder
+        self.images = glob(f"{root_folder}/images/*.jpg")
+        self.masks = glob(f"{root_folder}/masks/*.png")
+        self.input_img_resize = input_img_resize
+        self.output_img_resize = output_img_resize
+        self.y_transform = y_transform
+        self.X_transform = X_transform
+
+    def __getitem__(self, index):
+        """
+            Args:
+                index (int): Index
+            Returns:
+                tuple: (image, target) where target is class_index of the target class.
+        """
+
+        img_path = self.images[index]
+        img_name = img_path.split("/")[-1][:-4]
+        mask_name = f"{img_name}_segmentation.png"
+
+
+        img = Image.open(img_path)
+        
+        # # ratio = float(img.size[1] / img.size[0])
+        # # 1.25x the input size?
+        
+        # mask = binarize_image(f"{self.root_folder}/masks/{mask_name}", 150)
+
+        mask = Image.open(f"{self.root_folder}/masks/{mask_name}")
+        mask = mask.convert('L')  # convert image to monochrome
+        mask = mask.resize((self.output_img_resize), Image.ANTIALIAS)
+        mask = np.array(mask)
+
+
+        normalize = transforms.Normalize(
+            mean=[1.4987, 1.8783, 1.8212],
+            std=[0.4906, 0.4994, 0.4926]
+        )
+
+        img_transform = transforms.Compose([
+            transforms.Resize(self.input_img_resize),
+            transforms.ToTensor(),
+            # normalize
+        ])
+
+        mask_transform = transforms.Compose([
+            # transforms.Resize(self.output_img_resize),
+            # resized in binarize array
+            transforms.ToTensor(),
+            # normalize
+        ])
+
+        img = img_transform(img)
+        mask = mask_transform(np.expand_dims(mask, axis=-1))
+
+        return img, mask
+
+    def __len__(self):
+        assert len(self.images) == len(self.masks)
+        return len(self.images)

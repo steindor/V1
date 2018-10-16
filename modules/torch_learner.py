@@ -721,18 +721,18 @@ class Learner(nn.Module):
             
             scheduler.step(test_l)
 
-            # if hasattr(self, "test_acc") and len(self.test_acc) > 0:
-            #     is_best = test_a > max(self.test_acc)
-            # else:
-            #     is_best = test_a > max(test_acc) if len(test_acc) > 0 else True
+            if hasattr(self, "test_acc") and len(self.test_acc) > 0:
+                is_best = test_a > max(self.test_acc)
+            else:
+                is_best = test_a > max(test_acc) if len(test_acc) > 0 else True
 
-            # if len(test_acc) > 0:
-            #     if hasattr(self, "test_acc"):
-            #         is_best = test_a > max(self.test_acc)
-            #         print(f"train_a: {test_a} - max(self.test_acc): {max(self.test_acc)}")
-            #     else:
-            #         is_best = test_a > max(test_acc)
-            #         print(f"train_a: {test_a} - max(self.test_acc): {max(test_acc)}")
+            if len(test_acc) > 0:
+                if hasattr(self, "test_acc"):
+                    is_best = test_a > max(self.test_acc)
+                    print(f"train_a: {test_a} - max(self.test_acc): {max(self.test_acc)}")
+                else:
+                    is_best = test_a > max(test_acc)
+                    print(f"train_a: {test_a} - max(self.test_acc): {max(test_acc)}")
 
             if tensorboard_track:
                 self.writer.add_scalars(f'{self.date}/{self.model_name}/{time_of_day}', {
