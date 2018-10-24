@@ -332,8 +332,7 @@ class FeaturesDataset(Dataset):
 
 
 class SegDataset(Dataset):
-    def __init__(self, root_folder, input_img_resize=(572, 572), output_img_resize=(388, 388),
-                 X_transform=None, y_transform=None):
+    def __init__(self, root_folder, input_img_resize=(572, 572), output_img_resize=(388, 388), train_transform=False):
         """
             A dataset loader taking images paths as argument and return
             as them as tensors from getitem()
@@ -376,16 +375,20 @@ class SegDataset(Dataset):
         img = Image.open(img_path)
         mask = Image.open(f"{self.root_folder}/masks/subdir/{mask_name}")
 
-        cust_transforms = custom_transforms.Compose([
-            custom_transforms.RandomHorizontalFlip(),
-            custom_transforms.RandomVerticalFlip(),
-            custom_transforms.RandomRotate(270),
-            custom_transforms.ColorJitter(
-                brightness=0.2, saturation=0.2, hue=0.2, contrast=0.1
-            )
-        ])
 
-        img, mask = cust_transforms(img, mask)
+
+        if train_transform:
+            cust_transforms = custom_transforms.Compose([
+                custom_transforms.RandomHorizontalFlip(),
+                custom_transforms.RandomVerticalFlip(),
+                custom_transforms.RandomRotate(270),
+                custom_transforms.ColorJitter(
+                    brightness=0.2, saturation=0.2, hue=0.2, contrast=0.1
+                )
+            ])
+
+            img, mask = cust_transforms(img, mask)
+
 
         img_transform = transforms.Compose([
             transforms.Resize(self.input_img_resize),
