@@ -4,6 +4,8 @@ from torch.utils.data import Dataset, DataLoader
 from IPython.core.debugger import set_trace
 from torch.utils.data.sampler import SubsetRandomSampler
 import torchvision.transforms.functional as F
+from skimage.io import imread, imshow, imread_collection, concatenate_images
+from skimage.transform import resize
 from PIL import Image
 from glob import glob
 from tqdm import tqdm
@@ -222,6 +224,22 @@ class Derma(Dataset):
         # transforms.CenterCrop(224),
         # transforms.ToTensor()
 
+        # ratio = float(img.size[1] / img.size[0])
+            # # 1.25x the input size?
+            # We resize all images so the short side is 1.25x larger then the input size:
+            #1 check both sides and find the shorter side
+            #2 calculate the ratio between sides
+            #3 make the shorter side 1.25x larger then the input size
+            #4 calculate the length of the longer size
+            # resize
+            # random square crop [0.8,1.0] of the image
+            # resize that to input img size
+            # random horizontal flips
+            # random rotations of [0,90,180,270]
+            # augment brightness, saturation and contrast by random factor [0.9,1.1]
+            #implement and check lr rate on augment vs non augment
+
+
         if self.augment:
             train_transform = transforms.Compose([
                 transforms.RandomRotation((90,270)),
@@ -336,8 +354,8 @@ class SegDataset(Dataset):
                     (train_img, mask_img) and returns a transformed version with the same signature
         """
         self.root_folder = root_folder
-        self.images = glob(f"{root_folder}/images/*.jpg")
-        self.masks = glob(f"{root_folder}/masks/*.png")
+        self.images = glob(f"{root_folder}/images/subdir/*.jpg")
+        self.masks = glob(f"{root_folder}/masks/subdir/*.png")
         self.input_img_resize = input_img_resize
         self.output_img_resize = output_img_resize
         self.y_transform = y_transform
@@ -355,40 +373,32 @@ class SegDataset(Dataset):
         img_name = img_path.split("/")[-1][:-4]
         mask_name = f"{img_name}_segmentation.png"
 
-
         img = Image.open(img_path)
-        
-        # # ratio = float(img.size[1] / img.size[0])
-        # # 1.25x the input size?
-        
-        # mask = binarize_image(f"{self.root_folder}/masks/{mask_name}", 150)
+        mask = Image.open(f"{self.root_folder}/masks/subdir/{mask_name}")
 
-        mask = Image.open(f"{self.root_folder}/masks/{mask_name}")
-        mask = mask.convert('L')  # convert image to monochrome
-        mask = mask.resize((self.output_img_resize), Image.ANTIALIAS)
-        mask = np.array(mask)
+        cust_transforms = custom_transforms.Compose([
+            custom_transforms.RandomHorizontalFlip(),
+            custom_transforms.RandomVerticalFlip(),
+            custom_transforms.RandomRotate(270),
+            custom_transforms.ColorJitter(
+                brightness=0.2, saturation=0.2, hue=0.2, contrast=0.1
+            )
+        ])
 
-
-        normalize = transforms.Normalize(
-            mean=[1.4987, 1.8783, 1.8212],
-            std=[0.4906, 0.4994, 0.4926]
-        )
+        img, mask = cust_transforms(img, mask)
 
         img_transform = transforms.Compose([
             transforms.Resize(self.input_img_resize),
             transforms.ToTensor(),
-            # normalize
         ])
 
         mask_transform = transforms.Compose([
-            # transforms.Resize(self.output_img_resize),
-            # resized in binarize array
+            transforms.Resize(self.output_img_resize),
             transforms.ToTensor(),
-            # normalize
         ])
 
         img = img_transform(img)
-        mask = mask_transform(np.expand_dims(mask, axis=-1))
+        mask = mask_transform(mask)
 
         return img, mask
 

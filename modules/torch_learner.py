@@ -227,7 +227,7 @@ class Learner(nn.Module):
             if batch_num > 1 and smoothed_loss > 4 * best_loss:
                 plt.ylabel('loss')
                 plt.xlabel('Learning rate(log scale)')
-                plt.plot(log_lrs[:-5], losses[:-5])
+                plt.plot(log_lrs[:-3], losses[:-3])
                 return log_lrs, losses
             #Record the best loss
             if smoothed_loss < best_loss or batch_num == 1:
@@ -246,6 +246,7 @@ class Learner(nn.Module):
         plt.ylabel('loss')
         plt.xlabel('Learning rate(log scale)')
         plt.plot(log_lrs,losses)
+        return log_lrs, losses
         
     def freeze(self):
         for param in self.parameters():

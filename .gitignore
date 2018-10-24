@@ -4,8 +4,11 @@
 *.pyc
 *.pt
 *.txt
+*.h5
+*.tar
 runs/
 .vscode/
+saved_tensors/
 runs/
 TODO
 isic_2018/
