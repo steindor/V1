@@ -347,10 +347,11 @@ class SegDataset(Dataset):
                 output_img_resize (tuple): Tuple containing the new size of the output images
         """
         self.root_folder = root_folder
-        self.images = glob(f"{root_folder}/images/*.jpg")
-        self.masks = glob(f"{root_folder}/masks/*.png")
+        self.images = glob(f"{root_folder}/images/subdir/*.jpg")
+        self.masks = glob(f"{root_folder}/masks/subdir/*.png")
         self.input_img_resize = input_img_resize
         self.output_img_resize = output_img_resize
+        self.train_transform = train_transform
 
     def __getitem__(self, index):
         """
@@ -365,11 +366,10 @@ class SegDataset(Dataset):
         mask_name = f"{img_name}_segmentation.png"
 
         img = Image.open(img_path)
-        mask = Image.open(f"{self.root_folder}/masks/{mask_name}")
+        mask = Image.open(f"{self.root_folder}/masks/subdir/{mask_name}")
 
 
-
-        if train_transform:
+        if self.train_transform:
             cust_transforms = custom_transforms.Compose([
                 custom_transforms.RandomHorizontalFlip(),
                 custom_transforms.RandomVerticalFlip(),
