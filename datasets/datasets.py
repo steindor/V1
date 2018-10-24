@@ -345,20 +345,12 @@ class SegDataset(Dataset):
                     
                 input_img_resize (tuple): Tuple containing the new size of the input images
                 output_img_resize (tuple): Tuple containing the new size of the output images
-                X_transform (callable, optional): A function/transform that takes in 2 numpy arrays.
-                    Assumes X_data and y_data are not None.
-                    (train_img, mask_img) and returns a transformed version with the same signature
-                y_transform (callable, optional): A function/transform that takes in 2 numpy arrays.
-                    Assumes X_data and y_data are not None.
-                    (train_img, mask_img) and returns a transformed version with the same signature
         """
         self.root_folder = root_folder
         self.images = glob(f"{root_folder}/images/subdir/*.jpg")
         self.masks = glob(f"{root_folder}/masks/subdir/*.png")
         self.input_img_resize = input_img_resize
         self.output_img_resize = output_img_resize
-        self.y_transform = y_transform
-        self.X_transform = X_transform
 
     def __getitem__(self, index):
         """
