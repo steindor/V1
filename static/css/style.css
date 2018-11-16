@@ -1,0 +1,18 @@
+body {
+    padding: 0;
+}
+
+#container {
+    height: 850px;
+}
+
+#canvas {
+    width:800px;
+    height:800px;
+    padding:0;
+    position: relative;
+}
+.rectangle {
+    border: 2px solid #ffffff;
+    position: absolute;
+}

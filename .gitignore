@@ -6,6 +6,9 @@
 *.txt
 *.h5
 *.tar
+*.onnx
+server.py
+templates/
 runs/
 .vscode/
 saved_tensors/

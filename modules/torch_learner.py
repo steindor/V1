@@ -25,6 +25,11 @@ from glob import glob
 import pandas as pd
 import shutil
 
+from datasets.datasets import SegDataset
+# from imported_models.Unet.unet import Unet
+from modules.progressbar import Progressbar
+from modules.custom_lr_sched import CyclicLR
+
 from tensorboardX import SummaryWriter
 
 '''
@@ -86,6 +91,7 @@ class ModelEnsemble(nn.Module):
         out = self.fc3(out)
 
 class Learner(nn.Module):
+    
     def __init__(self):
         super(Learner, self).__init__()
 
@@ -196,6 +202,8 @@ class Learner(nn.Module):
         if optimizer is None:
             optimizer = "Adam"
 
+        prog_bar = Progressbar(len(self.train_loader))
+
         self.optimizer, self.optimizer_name = self.set_optimizer(optimizer, lr=init_value)
 
         if self.optimizer is None:
@@ -213,6 +221,7 @@ class Learner(nn.Module):
         log_lrs = []
         for idx, data in enumerate(self.train_loader):
             batch_num += 1
+            prog_bar.update(current=idx+1)
             #As before, get the loss for this mini-batch of inputs/outputs
             inputs, labels, index, path = data
             inputs, labels = inputs.to(self.device).requires_grad_(True), labels.to(self.device)
@@ -264,13 +273,15 @@ class Learner(nn.Module):
         summary(self, (3, self.img_height, self.img_width))
 
     def show_training_graph(self):
-        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(20, 5), squeeze=False)
+        fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(20, 5), squeeze=False)
         ax[0, 0].plot(self.test_loss, label="Test loss")
         ax[0, 0].plot(self.train_loss, label="Training loss")
         ax[0, 0].legend()
         ax[0, 0].set_title("Training / Test loss")
         ax[0, 1].plot(self.test_acc, label="Test accuracy")
         ax[0, 1].plot(self.train_acc, label="Training accuracy")
+        ax[0, 2].set_title("Learning rate")
+        ax[0, 2].plot(self.lr_arr)
         ax[0, 1].legend()
 
     def set_optimizer(self, optimizer, lr):
@@ -288,10 +299,10 @@ class Learner(nn.Module):
         
     def init_device(self):      
         if torch.cuda.is_available():
-            print("Using GPU")
             self.device = 'cuda:0'
             self.pin_memory = True
             self.cuda()
+            print("Using GPU")
         else:
             self.device = 'cpu'
             self.pin_memory = False
@@ -369,7 +380,7 @@ class Learner(nn.Module):
             # TODO: If not CSV - use the classes in the train folder, copy over - the folder structure in the
             # copied folder must be the same..
 
-    def load_datasets(self, train_dataset, test_dataset, batch_size=64):
+    def load_datasets(self, train_dataset, test_dataset, batch_size=64, num_workers=4):
         
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
@@ -379,6 +390,7 @@ class Learner(nn.Module):
         self.transforms_list = train_dataset.transforms_list
         self.classes = train_dataset.dataset.classes
         self.batch_size = batch_size
+        self.num_workers = num_workers
         self.no_of_train_images = len(train_dataset.index)
         self.no_of_test_images = len(test_dataset.index)
 
@@ -388,20 +400,20 @@ class Learner(nn.Module):
             test_subSampler = SubsetRandomSampler(test_dataset.index)
             train_subSampler = SubsetRandomSampler(train_dataset.index)
 
-            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, sampler=test_subSampler, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
-            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, sampler=train_subSampler, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
+            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, sampler=test_subSampler, batch_size=batch_size, num_workers=self.num_workers, pin_memory=self.pin_memory)
+            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, sampler=train_subSampler, batch_size=batch_size, num_workers=self.num_workers, pin_memory=self.pin_memory)
         elif train_dataset.subset and not test_dataset.subset:
             print("Train dataset subset is true and not test dataset subset")
             train_subSampler = SubsetRandomSampler(train_dataset.index)
            
-            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, sampler=train_subSampler, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
-            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
+            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, sampler=train_subSampler, batch_size=batch_size, num_workers=self.num_workers, pin_memory=self.pin_memory)
+            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=batch_size, num_workers=self.num_workers, pin_memory=self.pin_memory)
 
         elif not train_dataset and test_dataset.subset:
             print("Test dataset subset is true and not train dataset subset")
             test_subSampler = SubsetRandomSampler(test_dataset.index)
-            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, sampler=test_subSampler, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
-            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, batch_size=batch_size, num_workers=4, pin_memory=self.pin_memory)
+            self.test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, sampler=test_subSampler, batch_size=batch_size, num_workers=self.num_workers, pin_memory=self.pin_memory)
+            self.train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, batch_size=batch_size, num_workers=self.num_workers, pin_memory=self.pin_memory)
             
         else:
             # load the whole dataset
@@ -430,30 +442,25 @@ class Learner(nn.Module):
         print("Done moving images")
 
     def show_images(self, figsize=(15,15), dataset='train'):
-        fig, axes = plt.subplots(3, 3, figsize=figsize)
 
         print(f"Showing images from {dataset} dataset. To change, set the 'dataset' parameter")
         
         data_iter = iter(self.train_loader) if dataset == "train" else iter(self.test_loader)
         
-        _images, labels, index, path = data_iter.next()
-        images = _images.numpy().transpose(0, 2, 3, 1)
+        images, labels, index, path = data_iter.next()
 
+
+        fig, axes = plt.subplots(3, 3, figsize=figsize)
         for i, ax in enumerate(axes.flat):
             # plot img
-            ax.imshow(images[i, :, :, :], aspect='auto')
+            ax.imshow(images[i].permute(1,2,0), aspect='auto')
             # show true & predicted classes
             true_label = labels[i]
             # if cls_pred is None:
             xlabel = "{}, ({}), filename: {}".format(self.train_dataset.dataset.classes[true_label], true_label, path[i].split("/")[-1])
-            # else:
-            #     cls_pred_name = labels[cls_pred[i]]
-            #     xlabel = "True: {0}\nPred: {1}".format(
-            #         cls_true_name, cls_pred_name
-            #     )
             ax.set_xlabel(xlabel)
-            ax.set_xticks([])
-            ax.set_yticks([])
+            # ax.set_xticks([])
+            # ax.set_yticks([])
 
         plt.show()
 
@@ -582,7 +589,7 @@ class Learner(nn.Module):
         torch.save(state, f'{self.model_path}_model_best.pth.tar')
         print(f"Saved model to {self.model_path}_model_best.pth.tar")
 
-    def fit(self, epochs=5, lr=0.001, tensorboard_track=False, save_best=False, pandas_track=False, optimizer=None):
+    def fit(self, epochs=5, lr=0.001, cyclic_lr=False, base_lr=0.001, max_lr=0.006, step_size=None, tensorboard_track=False, save_best=False, pandas_track=False, optimizer=None):
  
         if tensorboard_track:
             self.writer = SummaryWriter(f'runs/{date}')
@@ -600,6 +607,7 @@ class Learner(nn.Module):
             self.criterion_name = "Binary Cross Entropy Loss"
 
         self.lr = lr
+        self.lr_arr = []
         self.epochs = epochs
         self.total_epochs = (self.total_epochs + epochs) if hasattr(self, "total_epochs") else epochs
 
@@ -620,6 +628,8 @@ class Learner(nn.Module):
             print(f"No of output classes: {self.num_classes}")
             print(f"Criterion: {self.criterion_name}")
             print(f"Optimizer: {self.optimizer_name}")
+            if cyclic_lr:
+                print(f"LR Scheduler: CyclicLR(base_lr={base_lr}, max_lr={max_lr}, step_size={5*len(self.train_loader)})")
             print(f"Save best model is set to: {save_best}")
             print(f"Pandas tracking is set to: {pandas_track}")
             if tensorboard_track:
@@ -646,13 +656,18 @@ class Learner(nn.Module):
 
         start_time = time.time()
 
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', patience=5)
+        # not included yet.. 
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', patience=4, verbose=True)
+        if cyclic_lr:
+            step_size = step_size if step_size is not None else len(self.train_loader) // 2 
+            # eitt upp skref og eitt nidur skref yfir eitt epoch
+            scheduler = CyclicLR(self.optimizer, base_lr=base_lr, max_lr=max_lr, step_size=step_size)
 
         # each epoch
         for epoch in range(epochs):
 
-            if epoch > 0:
-                print("Epoch number {} took: {:2f} seconds".format(epoch, (time.time() - start_time) / epoch))
+            # if epoch > 0:
+            #     print("Epoch number {} took: {:2f} seconds".format(epoch, (time.time() - start_time) / epoch))
                 
             self.train()
 
@@ -660,9 +675,15 @@ class Learner(nn.Module):
             total_train = 0
             correct_train = 0
 
+            prog_bar = Progressbar(len(self.train_loader))
+
             for i, (images, labels, path, index) in enumerate(self.train_loader):
+                if cyclic_lr:
+                    scheduler.batch_step()
                 images = images.to(self.device).requires_grad_(True)
                 labels = labels.to(self.device)
+
+                prog_bar.update(current = i+1)
 
                 if tensorboard_track:
                     # tensorboardX
@@ -681,6 +702,8 @@ class Learner(nn.Module):
                 self.optimizer.step()
 
                 cum_loss_train += loss.item()
+
+                self.lr_arr.append(self.optimizer.param_groups[0]['lr'])
 
                 if tensorboard_track:
                     self.writer.add_scalar(f'{self.date}/{self.model_name}/{time_of_day}/cum_loss_train', cum_loss_train, i)
@@ -719,21 +742,21 @@ class Learner(nn.Module):
             test_l = cum_loss_test / len(self.test_loader)
             train_a = 100 * correct_train / total_train
             test_a = 100 * correct / total
+
             
-            scheduler.step(test_l)
-
-            if hasattr(self, "test_acc") and len(self.test_acc) > 0:
+            if len(self.test_acc) > 0:
                 is_best = test_a > max(self.test_acc)
+            # if no values have been added to self.test_acc => this is the first epoch, make is_best = True
             else:
-                is_best = test_a > max(test_acc) if len(test_acc) > 0 else True
+                is_best = True
 
-            if len(test_acc) > 0:
-                if hasattr(self, "test_acc"):
-                    is_best = test_a > max(self.test_acc)
-                    print(f"train_a: {test_a} - max(self.test_acc): {max(self.test_acc)}")
-                else:
-                    is_best = test_a > max(test_acc)
-                    print(f"train_a: {test_a} - max(self.test_acc): {max(test_acc)}")
+            # if len(self.test_acc) > 0:
+            #     if hasattr(self, "test_acc"):
+            #         is_best = test_a > max(self.test_acc)
+            #         print(f"train_a: {test_a} - max(self.test_acc): {max(self.test_acc)}")
+            #     else:
+            #         is_best = test_a > max(test_acc)
+            #         print(f"train_a: {test_a} - max(self.test_acc): {max(test_acc)}")
 
             if tensorboard_track:
                 self.writer.add_scalars(f'{self.date}/{self.model_name}/{time_of_day}', {
@@ -748,20 +771,20 @@ class Learner(nn.Module):
             self.train_acc.append(train_a)
             self.test_acc.append(test_a)
 
-            # if is_best and save_best:
-            #     self.save_checkpoint({
-            #         'epoch': epoch + 1,
-            #         'training_hash': self.training_hash,
-            #         'arch': self.model_name,
-            #         'state_dict': self.state_dict(),
-            #         'optimizer': self.optimizer.state_dict(),
-            #         'best_acc': test_a,
-            #         'train_acc': self.train_acc,
-            #         'train_loss': self.train_loss,
-            #         'test_acc': self.test_acc,
-            #         'test_loss': self.test_loss
-            #     })
-            #     print("New checkpoint saved(rising training accuracy)")
+            if is_best and save_best:
+                self.save_checkpoint({
+                    'epoch': epoch + 1,
+                    'training_hash': self.training_hash,
+                    'arch': self.model_name,
+                    'state_dict': self.state_dict(),
+                    'optimizer': self.optimizer.state_dict(),
+                    'best_acc': test_a,
+                    'train_acc': self.train_acc,
+                    'train_loss': self.train_loss,
+                    'test_acc': self.test_acc,
+                    'test_loss': self.test_loss
+                })
+                print("New checkpoint saved(rising training accuracy)")
 
 
             if pandas_track:
@@ -798,6 +821,48 @@ class Learner(nn.Module):
                 correct += (predicted == labels).sum().item()
 
             print('Test Accuracy of the model on the {} test images: {} %'.format(self.no_of_test_images, round(100 * correct / total, 2)))
+
+
+class SegmentLearner(nn.Module):
+
+    def __init__(self):
+        super(SegmentLearner, self).__init__()
+
+    def prebuilt_model(model_name=None):
+
+        assert model_name is not None, "Parameter model_name is missing"
+
+        self.model = self.get_model(model_name)
+        
+    """ 
+        Loads dataset into SegmentLearner 
+        Parameters:
+
+        root_folder(string): The root folder containing train/images/ train/masks and test/images/ test/masks folders
+        input_img_resize(tuple): The size of the input image, e.g. (128,128)
+        output_img_resize(tuple): The size of the outpug image, e.g. (68,68)
+
+    """
+
+    def load_dataset(self, root_folder, input_img_resize=(572, 572), output_img_resize=(388, 388), train_transform=False, batch_size=64, subdir=False):
+        self.input_img_resize = input_img_resize
+        self.output_img_resize = output_img_resize
+        self.batch_size = batch_size
+
+        train_dataset = SegDataset(root_folder=f"{PATH}/train", input_img_resize=input_img_resize, train_transform=True, output_img_resize=output_img_resize, subdir=subdir)
+        test_dataset = SegDataset(root_folder=f"{PATH}/test",input_img_resize=input_img_resize, output_img_resize=output_img_resize, subdir=subdir)
+
+        self.trn_dataloader = torch.utils.data.DataLoader(train_dataset, shuffle=True, batch_size=64, num_workers=self.num_workers)
+        self.test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=64, shuffle=False, num_workers=self.num_workers)
+
+    def get_model(model_name):
+        
+        if model_name is "Unet":
+            return Unet()
+        else:
+            raise ValueError("Model name unkown")
+
+    
 
 
 class FeatureExtractor(Learner):

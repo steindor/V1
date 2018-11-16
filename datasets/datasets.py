@@ -245,19 +245,18 @@ class Derma(Dataset):
                 transforms.RandomRotation((90,270)),
                 custom_transforms.RatioCrop(ratio=0.9, random=True),
                 transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
-                transforms.CenterCrop(224),
-                # transforms.Resize(size=self.img_size),
+                transforms.Resize((224,224)),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
                 transforms.ToTensor(),
-                normalize,
+                # normalize,
             ])
         else:
             train_transform = transforms.Compose([
-                custom_transforms.ChangeBrightness(1.2),
+                # custom_transforms.ChangeBrightness(1.1),
                 transforms.Resize(size=self.img_size),
                 transforms.ToTensor(),
-                normalize,
+                # normalize,
             ])
         
         if self.test:
@@ -332,7 +331,7 @@ class FeaturesDataset(Dataset):
 
 
 class SegDataset(Dataset):
-    def __init__(self, root_folder, input_img_resize=(572, 572), output_img_resize=(388, 388), train_transform=False):
+    def __init__(self, root_folder, input_img_resize=(572, 572), output_img_resize=(388, 388), train_transform=False, subdir=False):
         """
             A dataset loader taking images paths as argument and return
             as them as tensors from getitem()
@@ -347,8 +346,16 @@ class SegDataset(Dataset):
                 output_img_resize (tuple): Tuple containing the new size of the output images
         """
         self.root_folder = root_folder
-        self.images = glob(f"{root_folder}/images/*.jpg")
-        self.masks = glob(f"{root_folder}/masks/*.png")
+        if subdir:
+            self.images = glob(f"{root_folder}/images/subdir/*.jpg")
+            self.masks = glob(f"{root_folder}/masks/subdir/*.png")
+        else:
+            self.images = glob(f"{root_folder}/images/*.jpg")
+            self.masks = glob(f"{root_folder}/masks/*.png")
+
+        print(f"Found {len(self.images)} no of images")
+        print(f"Found {len(self.masks)} no of masks")
+
         self.input_img_resize = input_img_resize
         self.output_img_resize = output_img_resize
         self.train_transform = train_transform
@@ -366,7 +373,7 @@ class SegDataset(Dataset):
         mask_name = f"{img_name}_segmentation.png"
 
         img = Image.open(img_path)
-        mask = Image.open(f"{self.root_folder}/masks/{mask_name}")
+        mask = Image.open(f"{self.root_folder}/masks/subdir/{mask_name}")
 
 
         if self.train_transform:
